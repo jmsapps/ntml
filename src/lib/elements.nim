@@ -403,12 +403,15 @@ macro defineHtmlElement*(tagNameLit: static[string]; args: varargs[untyped]): un
         let entryFn: NimNode = genSym(nskProc, "renderEntry")
         let entryItSym: NimNode = genSym(nskParam, "it")
         let entryRoot: NimNode = genSym(nskLet, "root")
+        let entryRes: NimNode = genSym(nskVar, "res")
         let entryProc: NimNode = newProc(
           entryFn,
           params = [ident"KeyRenderResult", newIdentDefs(entryItSym, ident"auto")],
           body = newTree(nnkStmtList,
             newLetStmt(entryRoot, newCall(renderFn, entryItSym)),
-            newCall(ident"initKeyRenderResult", entryRoot)
+            newVarStmt(entryRes, newCall(ident"initKeyRenderResult", entryRoot)),
+            newCall(ident"addNode", entryRes, entryRoot),
+            entryRes
           )
         )
 

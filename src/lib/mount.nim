@@ -16,19 +16,29 @@ when defined(js):
     KeyPatchProc*[T] = proc (root: Node, value: T)
       ## Placeholder for upcoming keyed patch callbacks. Currently unused.
     KeyRenderResult* = object
-      ## Captured nodes for keyed renders (future use).
+      ## Captured nodes and metadata for keyed renders (future use).
       root*: Node
+      nodes*: seq[Node]        ## Placeholder for element/text references.
+      cleanups*: seq[proc ()]  ## Placeholder for disposer callbacks.
     KeyEntryCache*[T] = object
       ## Reserved structure to hold keyed entry state without affecting current logic.
       entries*: Table[string, KeyRenderResult]
 
-  proc initKeyRenderResult*(root: Node): KeyRenderResult =
+  proc initKeyRenderResult*(root: Node; nodes: seq[Node] = @[]; cleanups: seq[proc ()] = @[]): KeyRenderResult =
     ## Helper to create a KeyRenderResult while keyed caching is under development.
-    KeyRenderResult(root: root)
+    KeyRenderResult(root: root, nodes: nodes, cleanups: cleanups)
 
   proc initKeyEntryCache*[T](): KeyEntryCache[T] =
     ## Builds an empty keyed entry cache. Currently unused at runtime.
-    KeyEntryCache[T](entries: initTable[string, KeyRenderResult[T]]())
+    KeyEntryCache[T](entries: initTable[string, KeyRenderResult]())
+
+  proc addNode*(result: var KeyRenderResult; node: Node) =
+    ## Appends a DOM node to the captured node list. Currently unused.
+    result.nodes.add(node)
+
+  proc addCleanup*(result: var KeyRenderResult; cleanup: proc ()) =
+    ## Registers a cleanup callback for future keyed diff work. Currently unused.
+    result.cleanups.add(cleanup)
 
 
   # Chilren mount utils
@@ -236,6 +246,8 @@ when defined(js):
           when compiles(entry.value == it):
             needsUpdate = entry.value != it
           if needsUpdate:
+            for cleaner in entry.rendered.cleanups:
+              if cleaner != nil: cleaner()
             removeBetween(parentNode, entry.startMarker, entry.endMarker)
             let rendered = render(it)
             discard jsInsertBefore(parentNode, rendered.root, entry.endMarker)
@@ -268,6 +280,8 @@ when defined(js):
         let entryParent = jsGetNodeProp(entry.startMarker, cstring("parentNode"))
         if entryParent.isNil:
           continue
+        for cleaner in entry.rendered.cleanups:
+          if cleaner != nil: cleaner()
         removeBetween(entryParent, entry.startMarker, entry.endMarker)
         cleanupSubtree(entry.startMarker)
         discard jsRemoveChild(entryParent, entry.startMarker)
@@ -344,6 +358,8 @@ when defined(js):
           when compiles(entry.value == it):
             needsUpdate = entry.value != it
           if needsUpdate:
+            for cleaner in entry.rendered.cleanups:
+              if cleaner != nil: cleaner()
             removeBetween(parentNode, entry.startMarker, entry.endMarker)
             let rendered = render(it)
             discard jsInsertBefore(parentNode, rendered.root, entry.endMarker)
@@ -376,6 +392,8 @@ when defined(js):
         let entryParent = jsGetNodeProp(entry.startMarker, cstring("parentNode"))
         if entryParent.isNil:
           continue
+        for cleaner in entry.rendered.cleanups:
+          if cleaner != nil: cleaner()
         removeBetween(entryParent, entry.startMarker, entry.endMarker)
         cleanupSubtree(entry.startMarker)
         discard jsRemoveChild(entryParent, entry.startMarker)

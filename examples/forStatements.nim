@@ -217,7 +217,7 @@ when defined(js):
 
           ul(class="list-output"):
             for i, val in list:
-              li(class="list-item"):
+              li(key=i, class="list-item"):
                 span(class="symbol-index"): "#" & $(i + 1)
                 span(class="symbol-value"): val
 
