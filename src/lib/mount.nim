@@ -12,6 +12,24 @@ when defined(js):
 
   import types
 
+  type
+    KeyPatchProc*[T] = proc (root: Node, value: T)
+      ## Placeholder for upcoming keyed patch callbacks. Currently unused.
+    KeyRenderResult* = object
+      ## Captured nodes for keyed renders (future use).
+      root*: Node
+    KeyEntryCache*[T] = object
+      ## Reserved structure to hold keyed entry state without affecting current logic.
+      entries*: Table[string, KeyRenderResult]
+
+  proc initKeyRenderResult*(root: Node): KeyRenderResult =
+    ## Helper to create a KeyRenderResult while keyed caching is under development.
+    KeyRenderResult(root: root)
+
+  proc initKeyEntryCache*[T](): KeyEntryCache[T] =
+    ## Builds an empty keyed entry cache. Currently unused at runtime.
+    KeyEntryCache[T](entries: initTable[string, KeyRenderResult[T]]())
+
 
   # Chilren mount utils
   proc toNode*(n: Node): Node = n
@@ -164,6 +182,7 @@ when defined(js):
     startMarker: Node
     endMarker: Node
     value: T
+    rendered: KeyRenderResult
 
   proc moveRange(parentNode: Node, beforeNode: Node, startMarker: Node, endMarker: Node) =
     var node = startMarker
@@ -175,7 +194,7 @@ when defined(js):
       node = next
 
 
-  proc mountChildForKeyed*[T](parent: Node, items: seq[T], key: proc (it: T): string, render: proc (it: T): Node) =
+  proc mountChildForKeyed*[T](parent: Node, items: seq[T], key: proc (it: T): string, render: proc (it: T): KeyRenderResult) =
     let startN = jsCreateTextNode(cstring(""))
     let endN = jsCreateTextNode(cstring(""))
     discard jsAppendChild(parent, startN)
@@ -218,8 +237,9 @@ when defined(js):
             needsUpdate = entry.value != it
           if needsUpdate:
             removeBetween(parentNode, entry.startMarker, entry.endMarker)
-            let frag = render(it)
-            discard jsInsertBefore(parentNode, frag, entry.endMarker)
+            let rendered = render(it)
+            discard jsInsertBefore(parentNode, rendered.root, entry.endMarker)
+            entry.rendered = rendered
           cursor = entry.endMarker
           entry.value = it
           entries[keyStr] = entry
@@ -231,13 +251,18 @@ when defined(js):
           if beforeNode.isNil:
             beforeNode = endN
 
+          let rendered = render(it)
           discard jsInsertBefore(parentNode, startMarker, beforeNode)
-          let frag = render(it)
-          discard jsInsertBefore(parentNode, frag, beforeNode)
+          discard jsInsertBefore(parentNode, rendered.root, beforeNode)
           discard jsInsertBefore(parentNode, endMarker, beforeNode)
 
           cursor = endMarker
-          entries[keyStr] = KeyEntry[T](startMarker: startMarker, endMarker: endMarker, value: it)
+          entries[keyStr] = KeyEntry[T](
+            startMarker: startMarker,
+            endMarker: endMarker,
+            value: it,
+            rendered: rendered
+          )
 
       for entry in prevEntries.values:
         let entryParent = jsGetNodeProp(entry.startMarker, cstring("parentNode"))
@@ -277,7 +302,7 @@ when defined(js):
     registerCleanup(startN, unsub)
 
 
-  proc mountChildForKeyed*[T](parent: Node, items: Signal[seq[T]], key: proc (it: T): string, render: proc (it: T): Node) =
+  proc mountChildForKeyed*[T](parent: Node, items: Signal[seq[T]], key: proc (it: T): string, render: proc (it: T): KeyRenderResult) =
     let startN = jsCreateTextNode(cstring(""))
     let endN = jsCreateTextNode(cstring(""))
     discard jsAppendChild(parent, startN)
@@ -320,8 +345,9 @@ when defined(js):
             needsUpdate = entry.value != it
           if needsUpdate:
             removeBetween(parentNode, entry.startMarker, entry.endMarker)
-            let frag = render(it)
-            discard jsInsertBefore(parentNode, frag, entry.endMarker)
+            let rendered = render(it)
+            discard jsInsertBefore(parentNode, rendered.root, entry.endMarker)
+            entry.rendered = rendered
           cursor = entry.endMarker
           entry.value = it
           entries[keyStr] = entry
@@ -333,13 +359,18 @@ when defined(js):
           if beforeNode.isNil:
             beforeNode = endN
 
+          let rendered = render(it)
           discard jsInsertBefore(parentNode, startMarker, beforeNode)
-          let frag = render(it)
-          discard jsInsertBefore(parentNode, frag, beforeNode)
+          discard jsInsertBefore(parentNode, rendered.root, beforeNode)
           discard jsInsertBefore(parentNode, endMarker, beforeNode)
 
           cursor = endMarker
-          entries[keyStr] = KeyEntry[T](startMarker: startMarker, endMarker: endMarker, value: it)
+          entries[keyStr] = KeyEntry[T](
+            startMarker: startMarker,
+            endMarker: endMarker,
+            value: it,
+            rendered: rendered
+          )
 
       for entry in prevEntries.values:
         let entryParent = jsGetNodeProp(entry.startMarker, cstring("parentNode"))

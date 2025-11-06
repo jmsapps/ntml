@@ -400,10 +400,23 @@ macro defineHtmlElement*(tagNameLit: static[string]; args: varargs[untyped]): un
           )
         )
 
+        let entryFn: NimNode = genSym(nskProc, "renderEntry")
+        let entryItSym: NimNode = genSym(nskParam, "it")
+        let entryRoot: NimNode = genSym(nskLet, "root")
+        let entryProc: NimNode = newProc(
+          entryFn,
+          params = [ident"KeyRenderResult", newIdentDefs(entryItSym, ident"auto")],
+          body = newTree(nnkStmtList,
+            newLetStmt(entryRoot, newCall(renderFn, entryItSym)),
+            newCall(ident"initKeyRenderResult", entryRoot)
+          )
+        )
+
         result = newTree(nnkStmtList,
           renderProc,
           keyProc,
-          newCall(ident"mountChildForKeyed", parent, newCall(ident"guardSeq", iterExpr), keyFn, renderFn)
+          entryProc,
+          newCall(ident"mountChildForKeyed", parent, newCall(ident"guardSeq", iterExpr), keyFn, entryFn)
         )
 
     of nnkWhileStmt:
