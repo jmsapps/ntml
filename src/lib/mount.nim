@@ -7,7 +7,8 @@ when defined(js):
     constants,
     shims,
     signals,
-    styled
+    styled,
+    tables
 
   import types
 
@@ -159,6 +160,102 @@ when defined(js):
     rerender(items)
 
 
+  type KeyEntry[T] = object
+    startMarker: Node
+    endMarker: Node
+    value: T
+
+  proc moveRange(parentNode: Node, beforeNode: Node, startMarker: Node, endMarker: Node) =
+    var node = startMarker
+    while true:
+      let next = jsGetNodeProp(node, cstring("nextSibling"))
+      discard jsInsertBefore(parentNode, node, beforeNode)
+      if node == endMarker:
+        break
+      node = next
+
+
+  proc mountChildForKeyed*[T](parent: Node, items: seq[T], key: proc (it: T): string, render: proc (it: T): Node) =
+    let startN = jsCreateTextNode(cstring(""))
+    let endN = jsCreateTextNode(cstring(""))
+    discard jsAppendChild(parent, startN)
+    discard jsAppendChild(parent, endN)
+
+    var entries = initTable[string, KeyEntry[T]]()
+
+    proc rerender(xs: seq[T]) =
+      let parentNode = jsGetNodeProp(endN, cstring("parentNode"))
+      if parentNode.isNil:
+        return
+
+      var prevEntries = entries
+      entries = initTable[string, KeyEntry[T]]()
+
+      var cursor: Node = startN
+      var dupCounts = initTable[string, int]()
+
+      for it in xs:
+        let baseKey = key(it)
+        let occ = dupCounts.getOrDefault(baseKey, 0)
+        dupCounts[baseKey] = occ + 1
+        var keyStr =
+          if occ == 0: baseKey
+          else: baseKey & "#dup" & $occ
+        when defined(debug):
+          if occ > 0:
+            echo "ntml: duplicate key '" & baseKey & "' (occurrence " & $occ & ")"
+
+        if prevEntries.hasKey(keyStr):
+          var entry = prevEntries[keyStr]
+          prevEntries.del(keyStr)
+          var beforeNode = jsGetNodeProp(cursor, cstring("nextSibling"))
+          if beforeNode.isNil:
+            beforeNode = endN
+          if beforeNode != entry.startMarker:
+            moveRange(parentNode, beforeNode, entry.startMarker, entry.endMarker)
+          var needsUpdate = true
+          when compiles(entry.value == it):
+            needsUpdate = entry.value != it
+          if needsUpdate:
+            removeBetween(parentNode, entry.startMarker, entry.endMarker)
+            let frag = render(it)
+            discard jsInsertBefore(parentNode, frag, entry.endMarker)
+          cursor = entry.endMarker
+          entry.value = it
+          entries[keyStr] = entry
+        else:
+          let startMarker = jsCreateTextNode(cstring(""))
+          let endMarker = jsCreateTextNode(cstring(""))
+
+          var beforeNode = jsGetNodeProp(cursor, cstring("nextSibling"))
+          if beforeNode.isNil:
+            beforeNode = endN
+
+          discard jsInsertBefore(parentNode, startMarker, beforeNode)
+          let frag = render(it)
+          discard jsInsertBefore(parentNode, frag, beforeNode)
+          discard jsInsertBefore(parentNode, endMarker, beforeNode)
+
+          cursor = endMarker
+          entries[keyStr] = KeyEntry[T](startMarker: startMarker, endMarker: endMarker, value: it)
+
+      for entry in prevEntries.values:
+        let entryParent = jsGetNodeProp(entry.startMarker, cstring("parentNode"))
+        if entryParent.isNil:
+          continue
+        removeBetween(entryParent, entry.startMarker, entry.endMarker)
+        cleanupSubtree(entry.startMarker)
+        discard jsRemoveChild(entryParent, entry.startMarker)
+        cleanupSubtree(entry.endMarker)
+        discard jsRemoveChild(entryParent, entry.endMarker)
+
+    rerender(items)
+
+    registerCleanup(startN, proc () =
+      entries = initTable[string, KeyEntry[T]]()
+    )
+
+
   proc mountChildFor*[T](parent: Node, items: Signal[seq[T]], render: proc (it: T): Node) =
     let startN = jsCreateTextNode(cstring(""))
     let endN = jsCreateTextNode(cstring(""))
@@ -178,6 +275,88 @@ when defined(js):
     rerender(items.get())
     let unsub = items.sub(proc (xs: seq[T]) = rerender(xs))
     registerCleanup(startN, unsub)
+
+
+  proc mountChildForKeyed*[T](parent: Node, items: Signal[seq[T]], key: proc (it: T): string, render: proc (it: T): Node) =
+    let startN = jsCreateTextNode(cstring(""))
+    let endN = jsCreateTextNode(cstring(""))
+    discard jsAppendChild(parent, startN)
+    discard jsAppendChild(parent, endN)
+
+    var entries = initTable[string, KeyEntry[T]]()
+
+    proc rerender(xs: seq[T]) =
+      let parentNode = jsGetNodeProp(endN, cstring("parentNode"))
+      if parentNode.isNil:
+        return
+
+      var prevEntries = entries
+      entries = initTable[string, KeyEntry[T]]()
+
+      var cursor: Node = startN
+      var dupCounts = initTable[string, int]()
+
+      for it in xs:
+        let baseKey = key(it)
+        let occ = dupCounts.getOrDefault(baseKey, 0)
+        dupCounts[baseKey] = occ + 1
+        var keyStr =
+          if occ == 0: baseKey
+          else: baseKey & "#dup" & $occ
+        when defined(debug):
+          if occ > 0:
+            echo "ntml: duplicate key '" & baseKey & "' (occurrence " & $occ & ")"
+
+        if prevEntries.hasKey(keyStr):
+          var entry = prevEntries[keyStr]
+          prevEntries.del(keyStr)
+          var beforeNode = jsGetNodeProp(cursor, cstring("nextSibling"))
+          if beforeNode.isNil:
+            beforeNode = endN
+          if beforeNode != entry.startMarker:
+            moveRange(parentNode, beforeNode, entry.startMarker, entry.endMarker)
+          var needsUpdate = true
+          when compiles(entry.value == it):
+            needsUpdate = entry.value != it
+          if needsUpdate:
+            removeBetween(parentNode, entry.startMarker, entry.endMarker)
+            let frag = render(it)
+            discard jsInsertBefore(parentNode, frag, entry.endMarker)
+          cursor = entry.endMarker
+          entry.value = it
+          entries[keyStr] = entry
+        else:
+          let startMarker = jsCreateTextNode(cstring(""))
+          let endMarker = jsCreateTextNode(cstring(""))
+
+          var beforeNode = jsGetNodeProp(cursor, cstring("nextSibling"))
+          if beforeNode.isNil:
+            beforeNode = endN
+
+          discard jsInsertBefore(parentNode, startMarker, beforeNode)
+          let frag = render(it)
+          discard jsInsertBefore(parentNode, frag, beforeNode)
+          discard jsInsertBefore(parentNode, endMarker, beforeNode)
+
+          cursor = endMarker
+          entries[keyStr] = KeyEntry[T](startMarker: startMarker, endMarker: endMarker, value: it)
+
+      for entry in prevEntries.values:
+        let entryParent = jsGetNodeProp(entry.startMarker, cstring("parentNode"))
+        if entryParent.isNil:
+          continue
+        removeBetween(entryParent, entry.startMarker, entry.endMarker)
+        cleanupSubtree(entry.startMarker)
+        discard jsRemoveChild(entryParent, entry.startMarker)
+        cleanupSubtree(entry.endMarker)
+        discard jsRemoveChild(entryParent, entry.endMarker)
+
+    rerender(items.get())
+    let unsub = items.sub(proc (xs: seq[T]) = rerender(xs))
+    registerCleanup(startN, unsub)
+    registerCleanup(startN, proc () =
+      entries = initTable[string, KeyEntry[T]]()
+    )
 
 
   proc isBooleanAttr(k: string): bool =

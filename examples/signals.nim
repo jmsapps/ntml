@@ -1,7 +1,6 @@
-import ../src/ntml
+when isMainModule and defined(js):
+  import ../src/ntml
 
-
-when isMainModule:
   type
     Person = object
       firstname: string

@@ -104,7 +104,7 @@ when defined(js):
       ul(class="todo-list"):
         for todo in filteredTodos:
           let todoId = todo.id
-          li(class = (if todo.done: "todo-item is-done" else: "todo-item")):
+          li(key=todo.id, class = (if todo.done: "todo-item is-done" else: "todo-item")):
             label(class="todo-row"):
               input(
                 class="todo-checkbox",

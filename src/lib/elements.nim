@@ -155,6 +155,51 @@ macro defineHtmlElement*(tagNameLit: static[string]; args: varargs[untyped]): un
 
     attrSetters.add(newCall(ident"mountAttr", node, kLit, value))
 
+  proc extractKeyAttribute(body: NimNode; keyName: string = "key"): tuple[clean: NimNode, keyExpr: NimNode] {.compileTime.} =
+    var keyCaptured: NimNode
+
+    proc strip(node: NimNode): NimNode {.compileTime.} =
+      let nodeKind = node.kind
+      case nodeKind
+      of nnkStmtList, nnkStmtListExpr, nnkBlockStmt:
+        result = newTree(nodeKind)
+        for child in node:
+          result.add(strip(child))
+
+      of nnkCall, nnkCommand, nnkCallStrLit:
+        result = newTree(nodeKind)
+        if node.len > 0:
+          result.add(strip(node[0]))
+        for i in 1 ..< node.len:
+          let arg = node[i]
+          var keep = true
+          if keyCaptured.isNil:
+            case arg.kind
+            of nnkExprEqExpr:
+              let lhs = arg[0]
+              if lhs.kind == nnkIdent and lhs.strVal.toLowerAscii() == keyName:
+                keyCaptured = arg[1]
+                keep = false
+
+            of nnkInfix:
+              if arg.len == 3 and arg[0].kind == nnkIdent and arg[0].strVal == "=":
+                let lhs = arg[1]
+                if lhs.kind == nnkIdent and lhs.strVal.toLowerAscii() == keyName:
+                  keyCaptured = arg[2]
+                  keep = false
+
+            else:
+              discard
+          if keep:
+            result.add(strip(arg))
+
+      else:
+        result = copyNimTree(node)
+
+    result.clean = strip(body)
+    result.keyExpr = keyCaptured
+
+
   proc lowerMountChildren(parent, node: NimNode): NimNode {.compileTime.} =
     proc emptyFragmentExpr(): NimNode {.compileTime.} =
       let cont = genSym(nskLet, "cont")
@@ -291,6 +336,8 @@ macro defineHtmlElement*(tagNameLit: static[string]; args: varargs[untyped]): un
           break
 
       let bodyNode: NimNode = node[bodyIdx]
+      let extracted = extractKeyAttribute(bodyNode)
+      let bodyForRender: NimNode = extracted.clean
       var iterExpr: NimNode = node[bodyIdx - 1]
 
       var names: seq[NimNode] = @[]
@@ -298,38 +345,66 @@ macro defineHtmlElement*(tagNameLit: static[string]; args: varargs[untyped]): un
         names.add(node[i])
 
       let renderFn: NimNode = genSym(nskProc, "render")
-      let itSym: NimNode = genSym(nskParam, "it")
+      let renderItSym: NimNode = genSym(nskParam, "it")
+      let keyItSym: NimNode = if extracted.keyExpr.isNil: renderItSym else: genSym(nskParam, "it")
       let frag: NimNode = genSym(nskLet,  "frag")
 
+      proc makeBindDefs(itSym: NimNode): NimNode {.compileTime.} =
+        if names.len == 1:
+          newTree(nnkIdentDefs, names[0], newEmptyNode(), itSym)
+        else:
+          let tupleDef = newTree(nnkVarTuple)
+          for nm in names:
+            tupleDef.add(nm)
+          tupleDef.add(newEmptyNode())
+          tupleDef.add(itSym)
+          tupleDef
+
       # build binding defs
-      var bindDefs: NimNode
+      var bindDefsRender: NimNode
       if names.len == 1:
-        # let <name> = it
-        bindDefs = newTree(nnkIdentDefs, names[0], newEmptyNode(), itSym)
+        bindDefsRender = makeBindDefs(renderItSym)
       else:
         # enumerate: convert iterable to seq[(int,T)] or Signal[seq[(int,T)]]
         iterExpr = newCall(ident"toIndexSeq", iterExpr)
-        # (i, x) = it    via VarTuple
-        bindDefs = newTree(nnkVarTuple)
-        for nm in names: bindDefs.add(nm)
-        bindDefs.add(newEmptyNode()) # type slot
-        bindDefs.add(itSym)          # rhs
+        bindDefsRender = makeBindDefs(renderItSym)
+
+      let bindSectionRender = newTree(nnkLetSection, bindDefsRender)
 
       let renderProc: NimNode = newProc(
         renderFn,
-        params = [ident"Node", newIdentDefs(itSym, ident"auto")],
+        params = [ident"Node", newIdentDefs(renderItSym, ident"auto")],
         body = newTree(nnkStmtList,
           newLetStmt(frag, newCall(ident"jsCreateFragment")),
-          newTree(nnkLetSection, bindDefs),
-          lowerMountChildren(frag, bodyNode),
+          copyNimTree(bindSectionRender),
+          lowerMountChildren(frag, bodyForRender),
           frag
         )
       )
 
-      result = newTree(nnkStmtList,
-        renderProc,
-        newCall(ident"mountChildFor", parent, newCall(ident"guardSeq", iterExpr), renderFn)
-      )
+      if extracted.keyExpr.isNil:
+        result = newTree(nnkStmtList,
+          renderProc,
+          newCall(ident"mountChildFor", parent, newCall(ident"guardSeq", iterExpr), renderFn)
+        )
+      else:
+        let bindDefsKey = makeBindDefs(keyItSym)
+        let bindSectionKey = newTree(nnkLetSection, bindDefsKey)
+        let keyFn: NimNode = genSym(nskProc, "key")
+        let keyProc: NimNode = newProc(
+          keyFn,
+          params = [ident"string", newIdentDefs(keyItSym, ident"auto")],
+          body = newTree(nnkStmtList,
+            copyNimTree(bindSectionKey),
+            newCall(ident"$", copyNimTree(extracted.keyExpr))
+          )
+        )
+
+        result = newTree(nnkStmtList,
+          renderProc,
+          keyProc,
+          newCall(ident"mountChildForKeyed", parent, newCall(ident"guardSeq", iterExpr), keyFn, renderFn)
+        )
 
     of nnkWhileStmt:
       let loop: NimNode = copy(node)
