@@ -262,7 +262,7 @@ when defined(js):
 
           h2(class="section-title"): "Duplicate key guard (debug build logs duplicates)"
 
-          ul(class="list-output"):
+          ul(class="list-output", id="duplicate-keys"):
             for idx, item in duplicateItems:
               li(key=item.id, class="list-item"):
                 span(class="symbol-index"): "#" & $(idx + 1)
@@ -275,7 +275,7 @@ when defined(js):
                 var current = duplicateItems()
                 if current.len > 0:
                   var dup = current[0]
-                  dup.label = dup.label & " (copy)"
+                  dup.label = dup.label
                   current.add(dup)
                   duplicateItems.set(current)
             ):

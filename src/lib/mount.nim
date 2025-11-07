@@ -54,7 +54,9 @@ when defined(js):
   # Shallow element prop/attr patch: class, value, checked
   proc patchBasicElementProps(elOld, elNew: Node) =
     let newClass = jsGetStringProp(elNew, cstring("className"))
-    setStringAttr(elOld, "class", $newClass)
+    let oldClass = jsGetStringProp(elOld, cstring("className"))
+    if newClass != oldClass:
+      setStringAttr(elOld, "class", $newClass)
 
     let newValue = jsGetStringProp(elNew, cstring("value"))
     let oldValue = jsGetStringProp(elOld, cstring("value"))
@@ -62,7 +64,9 @@ when defined(js):
       setStringAttr(elOld, "value", $newValue)
 
     let newChecked = jsGetBoolProp(elNew, cstring("checked"))
-    jsSetProp(elOld, cstring("checked"), newChecked)
+    let oldChecked = jsGetBoolProp(elOld, cstring("checked"))
+    if newChecked != oldChecked:
+      jsSetProp(elOld, cstring("checked"), newChecked)
 
   # DFS helper that accumulates into an explicit var parameter (avoids capturing 'result')
   proc pushSubtreeAcc(n: Node, acc: var seq[Node]) =
@@ -274,13 +278,18 @@ when defined(js):
     rendered: KeyRenderResult
 
   proc moveRange(parentNode: Node, beforeNode: Node, startMarker: Node, endMarker: Node) =
+    # Batch-move the contiguous range [startMarker..endMarker] by first
+    # detaching it into a fragment, then inserting the fragment once.
+    # This limits intermediate DOM mutations and reduces visual flashing.
+    let frag = jsCreateFragment()
     var node = startMarker
     while true:
       let next = jsGetNodeProp(node, cstring("nextSibling"))
-      discard jsInsertBefore(parentNode, node, beforeNode)
+      discard jsAppendChild(frag, node)
       if node == endMarker:
         break
       node = next
+    discard jsInsertBefore(parentNode, frag, beforeNode)
 
 
   proc mountChildForKeyed*[T](parent: Node, items: seq[T], key: proc (it: T): string, render: proc (it: T): KeyRenderResult) =
@@ -306,9 +315,11 @@ when defined(js):
         let baseKey = key(it)
         let occ = dupCounts.getOrDefault(baseKey, 0)
         dupCounts[baseKey] = occ + 1
+
         var keyStr =
           if occ == 0: baseKey
           else: baseKey & "#dup" & $occ
+
         when defined(debug):
           if occ > 0:
             echo "ntml: duplicate key '" & baseKey & "' (occurrence " & $occ & ")"
@@ -418,9 +429,11 @@ when defined(js):
         let baseKey = key(it)
         let occ = dupCounts.getOrDefault(baseKey, 0)
         dupCounts[baseKey] = occ + 1
+
         var keyStr =
           if occ == 0: baseKey
           else: baseKey & "#dup" & $occ
+
         when defined(debug):
           if occ > 0:
             echo "ntml: duplicate key '" & baseKey & "' (occurrence " & $occ & ")"

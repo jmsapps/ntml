@@ -101,7 +101,7 @@ when defined(js):
         button(`type`="button", class=filterClass("completed"), onClick = proc (e: Event) = setFilter("completed")):
           "Completed"
 
-      ul(class="todo-list"):
+      ul(id="todo-list", class="todo-list"):
         for todo in filteredTodos:
           let todoId = todo.id
           li(key=todo.id, class = (if todo.done: "todo-item is-done" else: "todo-item")):
