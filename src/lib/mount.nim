@@ -12,6 +12,9 @@ when defined(js):
 
   import types
 
+  # forward declarations
+  proc setStringAttr*(el: Node, key: string, value: string)
+
   type
     KeyPatchProc*[T] = proc (root: Node, value: T)
       ## Placeholder for upcoming keyed patch callbacks. Currently unused.
@@ -39,6 +42,82 @@ when defined(js):
   proc addCleanup*(result: var KeyRenderResult; cleanup: proc ()) =
     ## Registers a cleanup callback for future keyed diff work. Currently unused.
     result.cleanups.add(cleanup)
+
+
+  # --- Minimal patching helpers for keyed updates ---
+  proc nodeType(n: Node): int {.inline.} = jsGetIntProp(n, cstring("nodeType"))
+
+  proc textContentOf(n: Node): cstring {.inline.} = jsGetStringProp(n, cstring("nodeValue"))
+
+  proc setTextContent(n: Node, v: cstring) {.inline.} = jsSetProp(n, cstring("nodeValue"), v)
+
+  # Shallow element prop/attr patch: class, value, checked
+  proc patchBasicElementProps(elOld, elNew: Node) =
+    let newClass = jsGetStringProp(elNew, cstring("className"))
+    setStringAttr(elOld, "class", $newClass)
+
+    let newValue = jsGetStringProp(elNew, cstring("value"))
+    let oldValue = jsGetStringProp(elOld, cstring("value"))
+    if newValue != oldValue:
+      setStringAttr(elOld, "value", $newValue)
+
+    let newChecked = jsGetBoolProp(elNew, cstring("checked"))
+    jsSetProp(elOld, cstring("checked"), newChecked)
+
+  # DFS helper that accumulates into an explicit var parameter (avoids capturing 'result')
+  proc pushSubtreeAcc(n: Node, acc: var seq[Node]) =
+    var cur = n
+    while not cur.isNil:
+      acc.add(cur)
+      let first = jsGetNodeProp(cur, cstring("firstChild"))
+      if not first.isNil:
+        pushSubtreeAcc(first, acc)
+      cur = jsGetNodeProp(cur, cstring("nextSibling"))
+
+  # Flatten subtree in creation order for a simple pairwise patch
+  proc collectFlatNodes(root: Node): seq[Node] =
+    result = @[]
+    let t = nodeType(root)
+    if t == 11: # DocumentFragment
+      var c = jsGetNodeProp(root, cstring("firstChild"))
+      while not c.isNil:
+        pushSubtreeAcc(c, result)
+        c = jsGetNodeProp(c, cstring("nextSibling"))
+    else:
+      pushSubtreeAcc(root, result)
+
+  # Flatten the live DOM between markers (exclusive) in creation order
+  proc collectFlatBetween(startMarker, endMarker: Node): seq[Node] =
+    result = @[]
+    var c = jsGetNodeProp(startMarker, cstring("nextSibling"))
+    while not c.isNil and c != endMarker:
+      pushSubtreeAcc(c, result)
+      c = jsGetNodeProp(c, cstring("nextSibling"))
+
+  # Patch an existing keyed entry's DOM in-place by comparing to a fresh render
+  proc patchEntryWithFresh(startMarker, endMarker: Node, freshRoot: Node) =
+    if freshRoot.isNil: return
+    let oldFlat = collectFlatBetween(startMarker, endMarker)
+    let newFlat = collectFlatNodes(freshRoot)
+
+    let nMin = (if oldFlat.len < newFlat.len: oldFlat.len else: newFlat.len)
+    var i = 0
+    while i < nMin:
+      let o = oldFlat[i]
+      let n = newFlat[i]
+      let ot = nodeType(o)
+      let nt = nodeType(n)
+
+      if ot == 3 and nt == 3:
+        let nv = textContentOf(n)
+        if nv != textContentOf(o):
+          setTextContent(o, nv)
+      elif ot == 1 and nt == 1:
+        patchBasicElementProps(o, n)
+      # else: structural/type mismatch; leave as-is for now
+      inc i
+    # Dispose fresh subtree since it was never inserted
+    cleanupSubtree(freshRoot)
 
 
   # Chilren mount utils
@@ -246,12 +325,12 @@ when defined(js):
           when compiles(entry.value == it):
             needsUpdate = entry.value != it
           if needsUpdate:
-            for cleaner in entry.rendered.cleanups:
+            # Build a fresh subtree and patch in place instead of full teardown
+            let fresh = render(it)
+            patchEntryWithFresh(entry.startMarker, entry.endMarker, fresh.root)
+            # Dispose any cleanups that the fresh render might have registered
+            for cleaner in fresh.cleanups:
               if cleaner != nil: cleaner()
-            removeBetween(parentNode, entry.startMarker, entry.endMarker)
-            let rendered = render(it)
-            discard jsInsertBefore(parentNode, rendered.root, entry.endMarker)
-            entry.rendered = rendered
           cursor = entry.endMarker
           entry.value = it
           entries[keyStr] = entry
@@ -358,12 +437,10 @@ when defined(js):
           when compiles(entry.value == it):
             needsUpdate = entry.value != it
           if needsUpdate:
-            for cleaner in entry.rendered.cleanups:
+            let fresh = render(it)
+            patchEntryWithFresh(entry.startMarker, entry.endMarker, fresh.root)
+            for cleaner in fresh.cleanups:
               if cleaner != nil: cleaner()
-            removeBetween(parentNode, entry.startMarker, entry.endMarker)
-            let rendered = render(it)
-            discard jsInsertBefore(parentNode, rendered.root, entry.endMarker)
-            entry.rendered = rendered
           cursor = entry.endMarker
           entry.value = it
           entries[keyStr] = entry
