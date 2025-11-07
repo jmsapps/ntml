@@ -22,6 +22,7 @@ NTML is a reactive client-side single page application (SPA) renderer written in
 - **Lifecycle Cleanup**: automatic teardown releases subscriptions, event listeners, and styled classes when nodes unmount.
 - **Signal Operators**: rich overloads let you compose comparisons and boolean logic directly on `Signal`s.
 - **Reactive CSS Vars**: the `styleVars` helper keeps CSS custom properties in step with live signal data.
+- **Keyed List Rendering**: efficiently reconciles list updates by reusing existing DOM nodes, preserving element identity and minimizing re-renders.
 
 ---
 
