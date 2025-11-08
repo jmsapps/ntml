@@ -1,5 +1,7 @@
 when defined(js):
   from dom import Node
+  import
+    tables
 
   type
     Unsub* = proc ()
@@ -28,6 +30,22 @@ when defined(js):
       literal*: string
       signal*: Signal[string]
       isSignal*: bool
+
+    KeyPatchProc*[T] = proc (root: Node, value: T)
+
+    KeyRenderResult* = object
+      root*: Node
+      nodes*: seq[Node]
+      cleanups*: seq[proc ()]
+
+    KeyEntryCache*[T] = object
+      entries*: Table[string, KeyRenderResult]
+
+    KeyEntry*[T] = object
+      startMarker*: Node
+      endMarker*: Node
+      value*: T
+      rendered*: KeyRenderResult
 
     Props* = object of RootObj
       accesskey*: string = ""        # Keyboard shortcut to activate/focus an element

@@ -184,9 +184,9 @@ when isMainModule and defined(js):
           people.set(@[people.get()[1], people.get()[0]])
       ): "Swap People"
 
-      ul(class="people-list"):
+      ul(id="swapped", class="people-list"):
         for i, person in people:
-          li(class="people-item"):
+          li(key=person.firstname, class="people-item"):
             span(class="muted"): "#" & $(i + 1)
             span: person.firstname
             span(class="muted"): "likes " & person.favoriteFood

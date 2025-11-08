@@ -265,4 +265,5 @@ when isMainModule and defined(js):
       """
 
   discard jsAppendChild(document.head, globalStyles)
+
   render(App())

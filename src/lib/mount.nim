@@ -12,100 +12,175 @@ when defined(js):
 
   import types
 
-  # forward declarations
-  proc setStringAttr*(el: Node, key: string, value: string)
 
-  type
-    KeyPatchProc*[T] = proc (root: Node, value: T)
-      ## Placeholder for upcoming keyed patch callbacks. Currently unused.
-    KeyRenderResult* = object
-      ## Captured nodes and metadata for keyed renders (future use).
-      root*: Node
-      nodes*: seq[Node]        ## Placeholder for element/text references.
-      cleanups*: seq[proc ()]  ## Placeholder for disposer callbacks.
-    KeyEntryCache*[T] = object
-      ## Reserved structure to hold keyed entry state without affecting current logic.
-      entries*: Table[string, KeyRenderResult]
+  # utils
+  proc isBooleanAttr(k: string): bool =
+    let kl = k.toLowerAscii()
 
-  proc initKeyRenderResult*(root: Node; nodes: seq[Node] = @[]; cleanups: seq[proc ()] = @[]): KeyRenderResult =
-    ## Helper to create a KeyRenderResult while keyed caching is under development.
+    for b in BOOLEAN_ATTRS:
+      if b == kl: return true
+
+    false
+
+
+  proc propKey(attr: string): cstring =
+    case attr.toLowerAscii()
+    of "contenteditable": "contentEditable"
+    of "for", "htmlfor": "htmlFor"
+    of "maxlength": "maxLength"
+    of "readonly": "readOnly"
+    of "tabindex": "tabIndex"
+    else: cstring(attr)
+
+
+  proc toBoolStr(value: string): bool =
+    let v = value.toLowerAscii()
+    v != "" and v != "false" and v != "0" and v != "off" and v != "no"
+
+
+  proc setBooleanAttr(el: Node, k: string, on: bool) =
+    jsSetProp(el, propKey(k), on)
+
+    if on:
+      jsSetAttribute(el, cstring(k), "")
+
+    else:
+      jsRemoveAttribute(el, cstring(k))
+
+
+  proc setStringAttr*(el: Node, key: string, value: string) =
+    let keyLowered = key.toLowerAscii()
+
+    case keyLowered
+    of "class":
+      let merged = unionWithStyled(el, cstring(value))
+      if merged.len == 0:
+        jsRemoveAttribute(el, cstring("class"))
+
+      else:
+        jsSetAttribute(el, cstring("class"), merged)
+
+      return
+
+    of "value":
+      jsSetProp(el, propKey(keyLowered), cstring(value))
+
+    of "checked":
+      jsSetProp(el, propKey(keyLowered), toBoolStr(value))
+
+    else:
+      if isBooleanAttr(keyLowered):
+        setBooleanAttr(el, keyLowered, toBoolStr(value))
+
+      else:
+        if value.len == 0:
+          case keyLowered
+          of "style":
+            discard
+
+          else:
+            jsSetProp(el, propKey(keyLowered), cstring(""))
+
+          jsRemoveAttribute(el, cstring(keyLowered))
+
+        else:
+          case keyLowered
+          of "style":
+            discard
+
+          else:
+            jsSetProp(el, propKey(keyLowered), cstring(value))
+
+          jsSetAttribute(el, cstring(keyLowered), cstring(value))
+
+
+  proc initKeyRenderResult*(
+    root: Node,
+    nodes: seq[Node] = @[],
+    cleanups: seq[proc ()] = @[]
+  ): KeyRenderResult =
     KeyRenderResult(root: root, nodes: nodes, cleanups: cleanups)
 
-  proc initKeyEntryCache*[T](): KeyEntryCache[T] =
-    ## Builds an empty keyed entry cache. Currently unused at runtime.
-    KeyEntryCache[T](entries: initTable[string, KeyRenderResult]())
 
   proc addNode*(result: var KeyRenderResult; node: Node) =
-    ## Appends a DOM node to the captured node list. Currently unused.
     result.nodes.add(node)
 
-  proc addCleanup*(result: var KeyRenderResult; cleanup: proc ()) =
-    ## Registers a cleanup callback for future keyed diff work. Currently unused.
-    result.cleanups.add(cleanup)
 
-
-  # --- Minimal patching helpers for keyed updates ---
   proc nodeType(n: Node): int {.inline.} = jsGetIntProp(n, cstring("nodeType"))
+
 
   proc textContentOf(n: Node): cstring {.inline.} = jsGetStringProp(n, cstring("nodeValue"))
 
+
   proc setTextContent(n: Node, v: cstring) {.inline.} = jsSetProp(n, cstring("nodeValue"), v)
 
-  # Shallow element prop/attr patch: class, value, checked
+
   proc patchBasicElementProps(elOld, elNew: Node) =
     let newClass = jsGetStringProp(elNew, cstring("className"))
     let oldClass = jsGetStringProp(elOld, cstring("className"))
+
     if newClass != oldClass:
       setStringAttr(elOld, "class", $newClass)
 
     let newValue = jsGetStringProp(elNew, cstring("value"))
     let oldValue = jsGetStringProp(elOld, cstring("value"))
+
     if newValue != oldValue:
       setStringAttr(elOld, "value", $newValue)
 
     let newChecked = jsGetBoolProp(elNew, cstring("checked"))
     let oldChecked = jsGetBoolProp(elOld, cstring("checked"))
+
     if newChecked != oldChecked:
       jsSetProp(elOld, cstring("checked"), newChecked)
 
-  # DFS helper that accumulates into an explicit var parameter (avoids capturing 'result')
+
   proc pushSubtreeAcc(n: Node, acc: var seq[Node]) =
     var cur = n
+
     while not cur.isNil:
       acc.add(cur)
       let first = jsGetNodeProp(cur, cstring("firstChild"))
+
       if not first.isNil:
         pushSubtreeAcc(first, acc)
+
       cur = jsGetNodeProp(cur, cstring("nextSibling"))
 
-  # Flatten subtree in creation order for a simple pairwise patch
+
   proc collectFlatNodes(root: Node): seq[Node] =
     result = @[]
     let t = nodeType(root)
+
     if t == 11: # DocumentFragment
       var c = jsGetNodeProp(root, cstring("firstChild"))
+
       while not c.isNil:
         pushSubtreeAcc(c, result)
         c = jsGetNodeProp(c, cstring("nextSibling"))
+
     else:
       pushSubtreeAcc(root, result)
 
-  # Flatten the live DOM between markers (exclusive) in creation order
+
   proc collectFlatBetween(startMarker, endMarker: Node): seq[Node] =
     result = @[]
     var c = jsGetNodeProp(startMarker, cstring("nextSibling"))
+
     while not c.isNil and c != endMarker:
       pushSubtreeAcc(c, result)
       c = jsGetNodeProp(c, cstring("nextSibling"))
 
-  # Patch an existing keyed entry's DOM in-place by comparing to a fresh render
+
   proc patchEntryWithFresh(startMarker, endMarker: Node, freshRoot: Node) =
-    if freshRoot.isNil: return
+    if freshRoot.isNil:
+      return
+
     let oldFlat = collectFlatBetween(startMarker, endMarker)
     let newFlat = collectFlatNodes(freshRoot)
-
     let nMin = (if oldFlat.len < newFlat.len: oldFlat.len else: newFlat.len)
     var i = 0
+
     while i < nMin:
       let o = oldFlat[i]
       let n = newFlat[i]
@@ -116,15 +191,31 @@ when defined(js):
         let nv = textContentOf(n)
         if nv != textContentOf(o):
           setTextContent(o, nv)
+
       elif ot == 1 and nt == 1:
         patchBasicElementProps(o, n)
-      # else: structural/type mismatch; leave as-is for now
+
       inc i
-    # Dispose fresh subtree since it was never inserted
+
     cleanupSubtree(freshRoot)
 
 
-  # Chilren mount utils
+  proc moveRange(parentNode: Node, beforeNode: Node, startMarker: Node, endMarker: Node) =
+    let frag = jsCreateFragment()
+    var node = startMarker
+
+    while true:
+      let next = jsGetNodeProp(node, cstring("nextSibling"))
+      discard jsAppendChild(frag, node)
+
+      if node == endMarker:
+        break
+
+      node = next
+
+    discard jsInsertBefore(parentNode, frag, beforeNode)
+
+
   proc toNode*(n: Node): Node = n
   proc toNode*(builder: proc (): Node {.closure.}): Node = builder()
   proc toNode*(builder: proc (): Node {.nimcall.}): Node = builder()
@@ -162,6 +253,41 @@ when defined(js):
       var outSeq: seq[(int, T)] = @[]
       for i, v in s: outSeq.add((i, v))
       outSeq
+    )
+
+
+  proc bindValue*(el: Node, v: string) = setStringAttr(el, "value", v)
+  proc bindValue*(el: Node, v: cstring) = setStringAttr(el, "value", $v)
+  proc bindValue*(el: Node, v: int) = setStringAttr(el, "value", $v)
+  proc bindValue*(el: Node, v: float) = setStringAttr(el, "value", $v)
+
+
+  proc bindValue*(el: Node, s: Signal[string]) =
+    setStringAttr(el, "value", s.get())
+    let u = s.sub(proc(x: string) = jsSetProp(el, cstring("value"), cstring(x)))
+    registerCleanup(el, u)
+    let onInput = proc (e: Event) = s.set($jsGetProp(el, cstring("value")))
+    jsAddEventListener(el, cstring("input"), onInput)
+    jsAddEventListener(el, cstring("change"), onInput)
+
+
+  proc bindValue*(el: Node, s: Signal[cstring]) =
+    setStringAttr(el, "value", $s.get())
+    let u = s.sub(proc(x: cstring) = jsSetProp(el, cstring("value"), x))
+    registerCleanup(el, u)
+    let onInput = proc (e: Event) = s.set(jsGetProp(el, cstring("value")))
+    jsAddEventListener(el, cstring("input"), onInput)
+    jsAddEventListener(el, cstring("change"), onInput)
+
+
+  proc bindChecked*(el: Node, v: bool) = setBooleanAttr(el, "checked", v)
+
+  proc bindChecked*(el: Node, s: Signal[bool]) =
+    setBooleanAttr(el, "checked", s.get())
+    let u = s.sub(proc(x: bool) = jsSetProp(el, cstring("checked"), x))
+    registerCleanup(el, u)
+    jsAddEventListener(el, cstring("change"), proc (e: Event) =
+      s.set(jsGetBoolProp(el, cstring("checked")))
     )
 
 
@@ -271,120 +397,6 @@ when defined(js):
     rerender(items)
 
 
-  type KeyEntry[T] = object
-    startMarker: Node
-    endMarker: Node
-    value: T
-    rendered: KeyRenderResult
-
-  proc moveRange(parentNode: Node, beforeNode: Node, startMarker: Node, endMarker: Node) =
-    # Batch-move the contiguous range [startMarker..endMarker] by first
-    # detaching it into a fragment, then inserting the fragment once.
-    # This limits intermediate DOM mutations and reduces visual flashing.
-    let frag = jsCreateFragment()
-    var node = startMarker
-    while true:
-      let next = jsGetNodeProp(node, cstring("nextSibling"))
-      discard jsAppendChild(frag, node)
-      if node == endMarker:
-        break
-      node = next
-    discard jsInsertBefore(parentNode, frag, beforeNode)
-
-
-  proc mountChildForKeyed*[T](parent: Node, items: seq[T], key: proc (it: T): string, render: proc (it: T): KeyRenderResult) =
-    let startN = jsCreateTextNode(cstring(""))
-    let endN = jsCreateTextNode(cstring(""))
-    discard jsAppendChild(parent, startN)
-    discard jsAppendChild(parent, endN)
-
-    var entries = initTable[string, KeyEntry[T]]()
-
-    proc rerender(xs: seq[T]) =
-      let parentNode = jsGetNodeProp(endN, cstring("parentNode"))
-      if parentNode.isNil:
-        return
-
-      var prevEntries = entries
-      entries = initTable[string, KeyEntry[T]]()
-
-      var cursor: Node = startN
-      var dupCounts = initTable[string, int]()
-
-      for it in xs:
-        let baseKey = key(it)
-        let occ = dupCounts.getOrDefault(baseKey, 0)
-        dupCounts[baseKey] = occ + 1
-
-        var keyStr =
-          if occ == 0: baseKey
-          else: baseKey & "#dup" & $occ
-
-        when defined(debug):
-          if occ > 0:
-            echo "ntml: duplicate key '" & baseKey & "' (occurrence " & $occ & ")"
-
-        if prevEntries.hasKey(keyStr):
-          var entry = prevEntries[keyStr]
-          prevEntries.del(keyStr)
-          var beforeNode = jsGetNodeProp(cursor, cstring("nextSibling"))
-          if beforeNode.isNil:
-            beforeNode = endN
-          if beforeNode != entry.startMarker:
-            moveRange(parentNode, beforeNode, entry.startMarker, entry.endMarker)
-          var needsUpdate = true
-          when compiles(entry.value == it):
-            needsUpdate = entry.value != it
-          if needsUpdate:
-            # Build a fresh subtree and patch in place instead of full teardown
-            let fresh = render(it)
-            patchEntryWithFresh(entry.startMarker, entry.endMarker, fresh.root)
-            # Dispose any cleanups that the fresh render might have registered
-            for cleaner in fresh.cleanups:
-              if cleaner != nil: cleaner()
-          cursor = entry.endMarker
-          entry.value = it
-          entries[keyStr] = entry
-        else:
-          let startMarker = jsCreateTextNode(cstring(""))
-          let endMarker = jsCreateTextNode(cstring(""))
-
-          var beforeNode = jsGetNodeProp(cursor, cstring("nextSibling"))
-          if beforeNode.isNil:
-            beforeNode = endN
-
-          let rendered = render(it)
-          discard jsInsertBefore(parentNode, startMarker, beforeNode)
-          discard jsInsertBefore(parentNode, rendered.root, beforeNode)
-          discard jsInsertBefore(parentNode, endMarker, beforeNode)
-
-          cursor = endMarker
-          entries[keyStr] = KeyEntry[T](
-            startMarker: startMarker,
-            endMarker: endMarker,
-            value: it,
-            rendered: rendered
-          )
-
-      for entry in prevEntries.values:
-        let entryParent = jsGetNodeProp(entry.startMarker, cstring("parentNode"))
-        if entryParent.isNil:
-          continue
-        for cleaner in entry.rendered.cleanups:
-          if cleaner != nil: cleaner()
-        removeBetween(entryParent, entry.startMarker, entry.endMarker)
-        cleanupSubtree(entry.startMarker)
-        discard jsRemoveChild(entryParent, entry.startMarker)
-        cleanupSubtree(entry.endMarker)
-        discard jsRemoveChild(entryParent, entry.endMarker)
-
-    rerender(items)
-
-    registerCleanup(startN, proc () =
-      entries = initTable[string, KeyEntry[T]]()
-    )
-
-
   proc mountChildFor*[T](parent: Node, items: Signal[seq[T]], render: proc (it: T): Node) =
     let startN = jsCreateTextNode(cstring(""))
     let endN = jsCreateTextNode(cstring(""))
@@ -406,7 +418,125 @@ when defined(js):
     registerCleanup(startN, unsub)
 
 
-  proc mountChildForKeyed*[T](parent: Node, items: Signal[seq[T]], key: proc (it: T): string, render: proc (it: T): KeyRenderResult) =
+  proc mountChildForKeyed*[T](
+    parent: Node,
+    items: seq[T],
+    key: proc (it: T): string,
+    render: proc (it: T
+  ): KeyRenderResult) =
+    let startN = jsCreateTextNode(cstring(""))
+    let endN = jsCreateTextNode(cstring(""))
+    discard jsAppendChild(parent, startN)
+    discard jsAppendChild(parent, endN)
+
+    var entries = initTable[string, KeyEntry[T]]()
+
+    proc rerender(xs: seq[T]) =
+      let parentNode = jsGetNodeProp(endN, cstring("parentNode"))
+      if parentNode.isNil:
+        return
+
+      var prevEntries = entries
+      entries = initTable[string, KeyEntry[T]]()
+
+      var cursor: Node = startN
+      var dupCounts = initTable[string, int]()
+
+      for it in xs:
+        let baseKey = key(it)
+        let occ = dupCounts.getOrDefault(baseKey, 0)
+
+        dupCounts[baseKey] = occ + 1
+
+        var keyStr =
+          if occ == 0: baseKey
+          else: baseKey & "#dup" & $occ
+
+        when defined(debug):
+          if occ > 0:
+            echo "ntml: duplicate key '" & baseKey & "' (occurrence " & $occ & ")"
+
+        if prevEntries.hasKey(keyStr):
+          var entry = prevEntries[keyStr]
+          prevEntries.del(keyStr)
+          var beforeNode = jsGetNodeProp(cursor, cstring("nextSibling"))
+
+          if beforeNode.isNil:
+            beforeNode = endN
+
+          if beforeNode != entry.startMarker:
+            moveRange(parentNode, beforeNode, entry.startMarker, entry.endMarker)
+
+          var needsUpdate = true
+
+          when compiles(entry.value == it):
+            needsUpdate = entry.value != it
+
+          if needsUpdate:
+            # Build a fresh subtree and patch in place instead of full teardown
+            let fresh = render(it)
+
+            patchEntryWithFresh(entry.startMarker, entry.endMarker, fresh.root)
+
+            # Dispose any cleanups that the fresh render might have registered
+            for cleaner in fresh.cleanups:
+              if cleaner != nil:
+                cleaner()
+
+          cursor = entry.endMarker
+          entry.value = it
+          entries[keyStr] = entry
+
+        else:
+          let startMarker = jsCreateTextNode(cstring(""))
+          let endMarker = jsCreateTextNode(cstring(""))
+          var beforeNode = jsGetNodeProp(cursor, cstring("nextSibling"))
+
+          if beforeNode.isNil:
+            beforeNode = endN
+
+          let rendered = render(it)
+          discard jsInsertBefore(parentNode, startMarker, beforeNode)
+          discard jsInsertBefore(parentNode, rendered.root, beforeNode)
+          discard jsInsertBefore(parentNode, endMarker, beforeNode)
+
+          cursor = endMarker
+          entries[keyStr] = KeyEntry[T](
+            startMarker: startMarker,
+            endMarker: endMarker,
+            value: it,
+            rendered: rendered
+          )
+
+      for entry in prevEntries.values:
+        let entryParent = jsGetNodeProp(entry.startMarker, cstring("parentNode"))
+
+        if entryParent.isNil:
+          continue
+
+        for cleaner in entry.rendered.cleanups:
+          if cleaner != nil:
+            cleaner()
+
+        removeBetween(entryParent, entry.startMarker, entry.endMarker)
+        cleanupSubtree(entry.startMarker)
+        discard jsRemoveChild(entryParent, entry.startMarker)
+        cleanupSubtree(entry.endMarker)
+        discard jsRemoveChild(entryParent, entry.endMarker)
+
+    rerender(items)
+
+    registerCleanup(startN, proc () =
+      entries = initTable[string, KeyEntry[T]]()
+    )
+
+
+  proc mountChildForKeyed*[T](
+    parent: Node,
+    items: Signal[seq[T]],
+    key: proc (it: T): string,
+    render: proc (it: T): KeyRenderResult
+  ) =
     let startN = jsCreateTextNode(cstring(""))
     let endN = jsCreateTextNode(cstring(""))
     discard jsAppendChild(parent, startN)
@@ -442,18 +572,26 @@ when defined(js):
           var entry = prevEntries[keyStr]
           prevEntries.del(keyStr)
           var beforeNode = jsGetNodeProp(cursor, cstring("nextSibling"))
+
           if beforeNode.isNil:
             beforeNode = endN
+
           if beforeNode != entry.startMarker:
             moveRange(parentNode, beforeNode, entry.startMarker, entry.endMarker)
+
           var needsUpdate = true
+
           when compiles(entry.value == it):
             needsUpdate = entry.value != it
+
           if needsUpdate:
             let fresh = render(it)
             patchEntryWithFresh(entry.startMarker, entry.endMarker, fresh.root)
+
             for cleaner in fresh.cleanups:
-              if cleaner != nil: cleaner()
+              if cleaner != nil:
+                cleaner()
+
           cursor = entry.endMarker
           entry.value = it
           entries[keyStr] = entry
@@ -480,10 +618,14 @@ when defined(js):
 
       for entry in prevEntries.values:
         let entryParent = jsGetNodeProp(entry.startMarker, cstring("parentNode"))
+
         if entryParent.isNil:
           continue
+
         for cleaner in entry.rendered.cleanups:
-          if cleaner != nil: cleaner()
+          if cleaner != nil:
+            cleaner()
+
         removeBetween(entryParent, entry.startMarker, entry.endMarker)
         cleanupSubtree(entry.startMarker)
         discard jsRemoveChild(entryParent, entry.startMarker)
@@ -493,109 +635,7 @@ when defined(js):
     rerender(items.get())
     let unsub = items.sub(proc (xs: seq[T]) = rerender(xs))
     registerCleanup(startN, unsub)
-    registerCleanup(startN, proc () =
-      entries = initTable[string, KeyEntry[T]]()
-    )
-
-
-  proc isBooleanAttr(k: string): bool =
-    let kl = k.toLowerAscii()
-    for b in BOOLEAN_ATTRS:
-      if b == kl: return true
-    false
-
-
-  proc propKey(attr: string): cstring =
-    case attr.toLowerAscii()
-    of "contenteditable": "contentEditable"
-    of "for", "htmlfor": "htmlFor"
-    of "maxlength": "maxLength"
-    of "readonly": "readOnly"
-    of "tabindex": "tabIndex"
-    else: cstring(attr)
-
-
-  proc toBoolStr(value: string): bool =
-    let v = value.toLowerAscii()
-    v != "" and v != "false" and v != "0" and v != "off" and v != "no"
-
-
-  proc setBooleanAttr(el: Node, k: string, on: bool) =
-    jsSetProp(el, propKey(k), on)
-    if on:
-      jsSetAttribute(el, cstring(k), "")
-    else:
-      jsRemoveAttribute(el, cstring(k))
-
-
-  proc setStringAttr*(el: Node, key: string, value: string) =
-    let keyLowered = key.toLowerAscii()
-    case keyLowered
-    of "class":
-      let merged = unionWithStyled(el, cstring(value))
-      if merged.len == 0:
-        jsRemoveAttribute(el, cstring("class"))
-      else:
-        jsSetAttribute(el, cstring("class"), merged)
-      return
-    of "value":
-      jsSetProp(el, propKey(keyLowered), cstring(value))
-    of "checked":
-      jsSetProp(el, propKey(keyLowered), toBoolStr(value))
-
-    else:
-      if isBooleanAttr(keyLowered):
-        setBooleanAttr(el, keyLowered, toBoolStr(value))
-      else:
-        if value.len == 0:
-          case keyLowered
-          of "style":
-            discard
-          else:
-            jsSetProp(el, propKey(keyLowered), cstring(""))
-          jsRemoveAttribute(el, cstring(keyLowered))
-        else:
-          case keyLowered
-          of "style":
-            discard
-          else:
-            jsSetProp(el, propKey(keyLowered), cstring(value))
-          jsSetAttribute(el, cstring(keyLowered), cstring(value))
-
-  # Attribute bind utils
-  proc bindValue*(el: Node, v: string) = setStringAttr(el, "value", v)
-  proc bindValue*(el: Node, v: cstring) = setStringAttr(el, "value", $v)
-  proc bindValue*(el: Node, v: int) = setStringAttr(el, "value", $v)
-  proc bindValue*(el: Node, v: float) = setStringAttr(el, "value", $v)
-
-
-  proc bindValue*(el: Node, s: Signal[string]) =
-    setStringAttr(el, "value", s.get())
-    let u = s.sub(proc(x: string) = jsSetProp(el, cstring("value"), cstring(x)))
-    registerCleanup(el, u)
-    let onInput = proc (e: Event) = s.set($jsGetProp(el, cstring("value")))
-    jsAddEventListener(el, cstring("input"), onInput)
-    jsAddEventListener(el, cstring("change"), onInput)
-
-
-  proc bindValue*(el: Node, s: Signal[cstring]) =
-    setStringAttr(el, "value", $s.get())
-    let u = s.sub(proc(x: cstring) = jsSetProp(el, cstring("value"), x))
-    registerCleanup(el, u)
-    let onInput = proc (e: Event) = s.set(jsGetProp(el, cstring("value")))
-    jsAddEventListener(el, cstring("input"), onInput)
-    jsAddEventListener(el, cstring("change"), onInput)
-
-
-  proc bindChecked*(el: Node, v: bool) = setBooleanAttr(el, "checked", v)
-
-  proc bindChecked*(el: Node, s: Signal[bool]) =
-    setBooleanAttr(el, "checked", s.get())
-    let u = s.sub(proc(x: bool) = jsSetProp(el, cstring("checked"), x))
-    registerCleanup(el, u)
-    jsAddEventListener(el, cstring("change"), proc (e: Event) =
-      s.set(jsGetBoolProp(el, cstring("checked")))
-    )
+    registerCleanup(startN, proc () = entries = initTable[string, KeyEntry[T]]())
 
 
   # Attribute mounts

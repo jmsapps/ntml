@@ -1,4 +1,4 @@
-when defined(js):
+when isMainModule and defined(js):
   import std/[sequtils, strutils]
   import ../src/ntml
 
@@ -292,5 +292,4 @@ when defined(js):
           }
         """
 
-  when isMainModule:
-    render(TodoApp())
+  render(TodoApp())

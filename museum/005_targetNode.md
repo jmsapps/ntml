@@ -137,4 +137,82 @@ obs.observe(target, {
 });
 
 console.log("Observer ready.");
+
+// --- Dynamic DOM diff observer ---
+// Same as the one above, but it dynamically and tracks data-instance IDs for new nodes
+
+const target = document.getElementById("symbols");
+if (!target) throw new Error("missing #symbols");
+
+let counter = 1;
+
+// Tag any untagged <li> elements right away
+function tagNode(li) {
+  if (!li.dataset.instance) li.dataset.instance = String(counter++);
+}
+
+function tagExisting() {
+  target.querySelectorAll(":scope > li").forEach(tagNode);
+}
+
+tagExisting();
+
+const obs = new MutationObserver((mutations) => {
+  for (const m of mutations) {
+    if (m.type === "childList") {
+      // Tag and log added nodes
+      [...m.addedNodes].forEach((n) => {
+        if (n.nodeType === 1 && n.tagName === "LI") {
+          tagNode(n);
+          console.log("ADDED   li", n.dataset.instance, n);
+        }
+      });
+
+      // Log removed nodes
+      [...m.removedNodes].forEach((n) => {
+        if (n.nodeType === 1 && n.tagName === "LI") {
+          console.log("REMOVED li", n.dataset.instance || "(untagged)", n);
+        }
+      });
+    }
+
+    if (m.type === "characterData") {
+      const li = m.target.parentElement?.closest("li");
+      if (li)
+        console.log(
+          "PATCH text in li",
+          li.dataset.instance,
+          "->",
+          m.target.data
+        );
+    }
+
+    if (m.type === "attributes") {
+      const li = m.target.closest("li");
+      if (li)
+        console.log(
+          "PATCH attr",
+          m.attributeName,
+          "on li",
+          li.dataset.instance,
+          "old:",
+          m.oldValue,
+          "new:",
+          m.target.getAttribute(m.attributeName)
+        );
+    }
+  }
+});
+
+obs.observe(target, {
+  childList: true,
+  subtree: true,
+  characterData: true,
+  characterDataOldValue: true,
+  attributes: true,
+  attributeOldValue: true,
+  attributeFilter: ["class", "value", "checked", "title"],
+});
+
+console.log("Observer ready; all <li> nodes will auto-tag when added.");
 ```

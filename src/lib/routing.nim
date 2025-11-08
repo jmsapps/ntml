@@ -109,82 +109,82 @@ when defined(js):
     ensureRouteSignal().set(normalized)
 
 
-macro Routes*(location: typed; body: untyped): untyped =
-  proc joinPath(base, seg: string): string =
-    if seg.len == 0: return (if base.len == 0: "/" else: base)
-    if seg[0] == '/': return seg
-    if base.len == 0 or base == "/": return "/" & seg
-    (if base.endsWith("/"): base & seg else: base & "/" & seg)
+  macro Routes*(location: typed; body: untyped): untyped =
+    proc joinPath(base, seg: string): string =
+      if seg.len == 0: return (if base.len == 0: "/" else: base)
+      if seg[0] == '/': return seg
+      if base.len == 0 or base == "/": return "/" & seg
+      (if base.endsWith("/"): base & seg else: base & "/" & seg)
 
-  var branches: seq[NimNode] = @[]
-  var elseBody: NimNode = nil
+    var branches: seq[NimNode] = @[]
+    var elseBody: NimNode = nil
 
-  proc walk(n: NimNode; base: string) =
-    for stmt in n:
-      if stmt.kind in {nnkCall, nnkCommand} and $stmt[0] == "Route":
-        var pathStr = ""
-        var compExpr: NimNode = nil
-        var children: NimNode = nil
+    proc walk(n: NimNode; base: string) =
+      for stmt in n:
+        if stmt.kind in {nnkCall, nnkCommand} and $stmt[0] == "Route":
+          var pathStr = ""
+          var compExpr: NimNode = nil
+          var children: NimNode = nil
 
-        for i in 1 ..< stmt.len:
-          let a = stmt[i]
+          for i in 1 ..< stmt.len:
+            let a = stmt[i]
 
-          case a.kind
-          of nnkExprEqExpr:
-            let name = $a[0]
+            case a.kind
+            of nnkExprEqExpr:
+              let name = $a[0]
 
-            if name == "path":
-              if a[1].kind != nnkStrLit:
-                error("Route path must be a string literal", a[1])
+              if name == "path":
+                if a[1].kind != nnkStrLit:
+                  error("Route path must be a string literal", a[1])
 
-              pathStr = a[1].strVal
+                pathStr = a[1].strVal
 
-            elif name == "component":
-              compExpr = a[1]
+              elif name == "component":
+                compExpr = a[1]
 
-          of nnkStmtList:
-            children = a
+            of nnkStmtList:
+              children = a
 
-          else:
-            discard
+            else:
+              discard
 
-        if pathStr.len == 0:
-          error("Route requires path=\"...\"", stmt)
+          if pathStr.len == 0:
+            error("Route requires path=\"...\"", stmt)
 
-        if compExpr.isNil and (children.isNil or children.len == 0):
-          error("Route requires component=... or nested child Routes", stmt)
+          if compExpr.isNil and (children.isNil or children.len == 0):
+            error("Route requires component=... or nested child Routes", stmt)
 
-        if pathStr == "*":
-          if compExpr.isNil:
-            error("Wildcard Route(path=\"*\") requires component=...", stmt)
+          if pathStr == "*":
+            if compExpr.isNil:
+              error("Wildcard Route(path=\"*\") requires component=...", stmt)
 
-          elseBody = compExpr
+            elseBody = compExpr
 
-          continue
+            continue
 
-        let full = joinPath(base, pathStr)
+          let full = joinPath(base, pathStr)
 
-        if not compExpr.isNil:
-          branches.add(newTree(nnkOfBranch, newStrLitNode(full), compExpr))
+          if not compExpr.isNil:
+            branches.add(newTree(nnkOfBranch, newStrLitNode(full), compExpr))
 
-        if not children.isNil and children.len > 0:
-          walk(children, full)
+          if not children.isNil and children.len > 0:
+            walk(children, full)
 
-      else:
-        error("Only Route(...) entries are allowed inside Routes", stmt)
+        else:
+          error("Only Route(...) entries are allowed inside Routes", stmt)
 
-  walk(body, "")
+    walk(body, "")
 
-  var caseStmt = newTree(nnkCaseStmt, location)
+    var caseStmt = newTree(nnkCaseStmt, location)
 
-  for b in branches:
-    caseStmt.add(b)
+    for b in branches:
+      caseStmt.add(b)
 
-  caseStmt.add(newTree(
-    nnkElse,
-    (if elseBody.isNil: newTree(nnkDiscardStmt, newEmptyNode()) else: elseBody)
-  ))
+    caseStmt.add(newTree(
+      nnkElse,
+      (if elseBody.isNil: newTree(nnkDiscardStmt, newEmptyNode()) else: elseBody)
+    ))
 
-  result = quote do:
-    fragment:
-      `caseStmt`
+    result = quote do:
+      fragment:
+        `caseStmt`
