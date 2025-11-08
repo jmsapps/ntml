@@ -162,6 +162,12 @@ when defined(js):
     else:
       pushSubtreeAcc(root, result)
 
+  proc captureSubtree*(res: var KeyRenderResult; root: Node) =
+    ## Collects all nodes under `root` and appends them to `res.nodes`.
+    let flat = collectFlatNodes(root)
+    for n in flat:
+      res.nodes.add(n)
+
 
   proc collectFlatBetween(startMarker, endMarker: Node): seq[Node] =
     result = @[]
@@ -170,6 +176,28 @@ when defined(js):
     while not c.isNil and c != endMarker:
       pushSubtreeAcc(c, result)
       c = jsGetNodeProp(c, cstring("nextSibling"))
+
+  # Compare a fresh subtree to an existing keyed entry's root and update in place.
+  proc patchEntryWithFresh*(res: KeyRenderResult, freshRoot: Node) =
+    if res.root.isNil or freshRoot.isNil:
+      return
+    let oldFlat = collectFlatNodes(res.root)
+    let newFlat = collectFlatNodes(freshRoot)
+    let nMin = (if oldFlat.len < newFlat.len: oldFlat.len else: newFlat.len)
+    var i = 0
+    while i < nMin:
+      let o = oldFlat[i]
+      let n = newFlat[i]
+      let ot = nodeType(o)
+      let nt = nodeType(n)
+      if ot == 3 and nt == 3:
+        let nv = textContentOf(n)
+        if nv != textContentOf(o):
+          setTextContent(o, nv)
+      elif ot == 1 and nt == 1:
+        patchBasicElementProps(o, n)
+      inc i
+    cleanupSubtree(freshRoot)
 
 
   proc patchEntryWithFresh(startMarker, endMarker: Node, freshRoot: Node) =
@@ -473,10 +501,9 @@ when defined(js):
             needsUpdate = entry.value != it
 
           if needsUpdate:
-            # Build a fresh subtree and patch in place instead of full teardown
+            # Build a fresh subtree and patch in place against captured root
             let fresh = render(it)
-
-            patchEntryWithFresh(entry.startMarker, entry.endMarker, fresh.root)
+            patchEntryWithFresh(entry.rendered, fresh.root)
 
             # Dispose any cleanups that the fresh render might have registered
             for cleaner in fresh.cleanups:
@@ -586,7 +613,7 @@ when defined(js):
 
           if needsUpdate:
             let fresh = render(it)
-            patchEntryWithFresh(entry.startMarker, entry.endMarker, fresh.root)
+            patchEntryWithFresh(entry.rendered, fresh.root)
 
             for cleaner in fresh.cleanups:
               if cleaner != nil:

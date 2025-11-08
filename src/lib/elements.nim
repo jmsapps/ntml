@@ -416,13 +416,21 @@ macro defineHtmlElement*(tagNameLit: static[string]; args: varargs[untyped]): un
         let entryItSym: NimNode = genSym(nskParam, "it")
         let entryRoot: NimNode = genSym(nskLet, "root")
         let entryRes: NimNode = genSym(nskVar, "res")
+        let bindDefsEntry: NimNode = makeBindDefs(entryItSym)
+        let bindSectionEntry: NimNode = newTree(nnkLetSection, bindDefsEntry)
         let entryProc: NimNode = newProc(
           entryFn,
           params = [ident"KeyRenderResult", newIdentDefs(entryItSym, ident"auto")],
           body = newTree(nnkStmtList,
-            newLetStmt(entryRoot, newCall(renderFn, entryItSym)),
+            # Build a fresh fragment and initialize capture result
+            newLetStmt(entryRoot, newCall(ident"jsCreateFragment")),
             newVarStmt(entryRes, newCall(ident"initKeyRenderResult", entryRoot)),
+            # Render the keyed body into the fragment using the existing lowering
+            copyNimTree(bindSectionEntry),
+            lowerMountChildren(entryRoot, bodyForRender),
+            # Capture root + subtree nodes for later patching
             newCall(ident"addNode", entryRes, entryRoot),
+            newCall(ident"captureSubtree", entryRes, entryRoot),
             entryRes
           )
         )
