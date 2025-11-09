@@ -439,11 +439,31 @@ macro defineHtmlElement*(tagNameLit: static[string]; args: varargs[untyped]): un
           )
         )
 
+        let patchFn: NimNode = genSym(nskProc, "patch")
+        let patchStart: NimNode = genSym(nskParam, "s")
+        let patchEnd: NimNode = genSym(nskParam, "e")
+        let patchIt: NimNode = genSym(nskParam, "it")
+        let freshSym: NimNode = genSym(nskLet, "fresh")
+        let patchProc: NimNode = newProc(
+          patchFn,
+          params = [
+            ident"void",
+            newIdentDefs(patchStart, ident"Node"),
+            newIdentDefs(patchEnd, ident"Node"),
+            newIdentDefs(patchIt, ident"auto")
+          ],
+          body = newTree(nnkStmtList,
+            newLetStmt(freshSym, newCall(renderFn, patchIt)),
+            newCall(newDotExpr(ident"mount", ident"patchEntryWithFresh"), patchStart, patchEnd, freshSym)
+          )
+        )
+
         result = newTree(nnkStmtList,
           renderProc,
           keyProc,
           entryProc,
-          newCall(ident"mountChildForKeyed", parent, newCall(ident"guardSeq", iterExpr), keyFn, entryFn)
+          patchProc,
+          newCall(ident"mountChildForKeyed", parent, newCall(ident"guardSeq", iterExpr), keyFn, entryFn, patchFn)
         )
 
     of nnkWhileStmt:

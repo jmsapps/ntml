@@ -151,6 +151,12 @@ when defined(js):
     if newChecked != oldChecked:
       jsSetProp(elOld, cstring("checked"), newChecked)
 
+    let newTitle = jsGetStringProp(elNew, cstring("title"))
+    let oldTitle = jsGetStringProp(elOld, cstring("title"))
+
+    if newTitle != oldTitle:
+      setStringAttr(elOld, "title", $newTitle)
+
 
   proc pushSubtreeAcc(n: Node, acc: var seq[Node]) =
     var cur = n
@@ -196,7 +202,7 @@ when defined(js):
       c = jsGetNodeProp(c, cstring("nextSibling"))
 
 
-  proc patchEntryWithFresh(startMarker, endMarker: Node, freshRoot: Node) =
+  proc patchEntryWithFresh*(startMarker, endMarker: Node, freshRoot: Node) =
     if freshRoot.isNil:
       return
 
@@ -446,8 +452,9 @@ when defined(js):
     parent: Node,
     items: seq[T],
     key: proc (it: T): string,
-    render: proc (it: T
-  ): KeyRenderResult) =
+    entryProc: proc (it: T): KeyRenderResult,
+    patch: proc (startMarker: Node, endMarker: Node, value: T)
+  ) =
     let startN = jsCreateTextNode(cstring(""))
     let endN = jsCreateTextNode(cstring(""))
     discard jsAppendChild(parent, startN)
@@ -460,29 +467,24 @@ when defined(js):
       if parentNode.isNil:
         return
 
-      var prevEntries = entries
+      var prev = entries
       entries = initTable[string, KeyEntry[T]]()
-
-      var cursor: Node = startN
+      var cursor = startN
       var dupCounts = initTable[string, int]()
 
       for it in xs:
         let baseKey = key(it)
         let occ = dupCounts.getOrDefault(baseKey, 0)
-
         dupCounts[baseKey] = occ + 1
-
-        var keyStr =
-          if occ == 0: baseKey
-          else: baseKey & "#dup" & $occ
+        let keyStr = if occ == 0: baseKey else: baseKey & "#dup" & $occ
 
         when defined(debug):
           if occ > 0:
             echo "ntml: duplicate key '" & baseKey & "' (occurrence " & $occ & ")"
 
-        if prevEntries.hasKey(keyStr):
-          var entry = prevEntries[keyStr]
-          prevEntries.del(keyStr)
+        if prev.hasKey(keyStr):
+          var entry = prev[keyStr]
+          prev.del(keyStr)
           var beforeNode = jsGetNodeProp(cursor, cstring("nextSibling"))
 
           if beforeNode.isNil:
@@ -497,13 +499,7 @@ when defined(js):
             needsUpdate = entry.value != it
 
           if needsUpdate:
-            let fresh = render(it)
-            patchEntryWithFresh(entry.startMarker, entry.endMarker, fresh.root)
-
-            # Dispose any cleanups that the fresh render might have registered
-            for cleaner in fresh.cleanups:
-              if cleaner != nil:
-                cleaner()
+            patch(entry.startMarker, entry.endMarker, it)
 
           cursor = entry.endMarker
           entry.value = it
@@ -517,9 +513,12 @@ when defined(js):
           if beforeNode.isNil:
             beforeNode = endN
 
-          let rendered = render(it)
+          let rendered = entryProc(it)
           discard jsInsertBefore(parentNode, startMarker, beforeNode)
-          discard jsInsertBefore(parentNode, rendered.root, beforeNode)
+
+          if not rendered.root.isNil:
+            discard jsInsertBefore(parentNode, rendered.root, beforeNode)
+
           discard jsInsertBefore(parentNode, endMarker, beforeNode)
 
           cursor = endMarker
@@ -530,7 +529,7 @@ when defined(js):
             rendered: rendered
           )
 
-      for entry in prevEntries.values:
+      for entry in prev.values:
         let entryParent = jsGetNodeProp(entry.startMarker, cstring("parentNode"))
 
         if entryParent.isNil:
@@ -547,17 +546,15 @@ when defined(js):
         discard jsRemoveChild(entryParent, entry.endMarker)
 
     rerender(items)
-
-    registerCleanup(startN, proc () =
-      entries = initTable[string, KeyEntry[T]]()
-    )
+    registerCleanup(startN, proc () = entries = initTable[string, KeyEntry[T]]())
 
 
   proc mountChildForKeyed*[T](
     parent: Node,
     items: Signal[seq[T]],
     key: proc (it: T): string,
-    render: proc (it: T): KeyRenderResult
+    entryProc: proc (it: T): KeyRenderResult,
+    patch: proc (startMarker: Node, endMarker: Node, value: T)
   ) =
     let startN = jsCreateTextNode(cstring(""))
     let endN = jsCreateTextNode(cstring(""))
@@ -571,28 +568,24 @@ when defined(js):
       if parentNode.isNil:
         return
 
-      var prevEntries = entries
+      var prev = entries
       entries = initTable[string, KeyEntry[T]]()
-
-      var cursor: Node = startN
+      var cursor = startN
       var dupCounts = initTable[string, int]()
 
       for it in xs:
         let baseKey = key(it)
         let occ = dupCounts.getOrDefault(baseKey, 0)
         dupCounts[baseKey] = occ + 1
-
-        var keyStr =
-          if occ == 0: baseKey
-          else: baseKey & "#dup" & $occ
+        let keyStr = if occ == 0: baseKey else: baseKey & "#dup" & $occ
 
         when defined(debug):
           if occ > 0:
             echo "ntml: duplicate key '" & baseKey & "' (occurrence " & $occ & ")"
 
-        if prevEntries.hasKey(keyStr):
-          var entry = prevEntries[keyStr]
-          prevEntries.del(keyStr)
+        if prev.hasKey(keyStr):
+          var entry = prev[keyStr]
+          prev.del(keyStr)
           var beforeNode = jsGetNodeProp(cursor, cstring("nextSibling"))
 
           if beforeNode.isNil:
@@ -602,32 +595,29 @@ when defined(js):
             moveRange(parentNode, beforeNode, entry.startMarker, entry.endMarker)
 
           var needsUpdate = true
-
-          when compiles(entry.value == it):
-            needsUpdate = entry.value != it
-
+          when compiles(entry.value == it): needsUpdate = entry.value != it
           if needsUpdate:
-            let fresh = render(it)
-            patchEntryWithFresh(entry.startMarker, entry.endMarker, fresh.root)
-
-            for cleaner in fresh.cleanups:
-              if cleaner != nil:
-                cleaner()
+            patch(entry.startMarker, entry.endMarker, it)
 
           cursor = entry.endMarker
           entry.value = it
           entries[keyStr] = entry
+
         else:
           let startMarker = jsCreateTextNode(cstring(""))
           let endMarker = jsCreateTextNode(cstring(""))
-
           var beforeNode = jsGetNodeProp(cursor, cstring("nextSibling"))
+
           if beforeNode.isNil:
             beforeNode = endN
 
-          let rendered = render(it)
+          let rendered = entryProc(it)
+
           discard jsInsertBefore(parentNode, startMarker, beforeNode)
-          discard jsInsertBefore(parentNode, rendered.root, beforeNode)
+
+          if not rendered.root.isNil:
+            discard jsInsertBefore(parentNode, rendered.root, beforeNode)
+
           discard jsInsertBefore(parentNode, endMarker, beforeNode)
 
           cursor = endMarker
@@ -638,7 +628,7 @@ when defined(js):
             rendered: rendered
           )
 
-      for entry in prevEntries.values:
+      for entry in prev.values:
         let entryParent = jsGetNodeProp(entry.startMarker, cstring("parentNode"))
 
         if entryParent.isNil:
