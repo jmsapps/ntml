@@ -1,14 +1,15 @@
 when defined(js):
-  from dom import Node, Event
-  import
-    strutils
+  when defined(debug):
+    from sequtils import mapIt
 
-  import
-    constants,
-    shims,
-    signals,
-    styled,
-    tables
+  from dom import Node, Event
+  import strutils
+
+  import constants
+  import shims
+  import signals
+  import styled
+  import tables
 
   import types
 
@@ -97,9 +98,15 @@ when defined(js):
   proc initKeyRenderResult*(
     root: Node,
     nodes: seq[Node] = @[],
-    cleanups: seq[proc ()] = @[]
+    cleanups: seq[proc ()] = @[],
+    eventBindings: seq[KeyEventBinding] = @[]
   ): KeyRenderResult =
-    KeyRenderResult(root: root, nodes: nodes, cleanups: cleanups)
+    KeyRenderResult(
+      root: root,
+      nodes: nodes,
+      cleanups: cleanups,
+      eventBindings: eventBindings
+    )
 
 
   proc addNode*(result: var KeyRenderResult; node: Node) =
@@ -108,6 +115,49 @@ when defined(js):
 
   proc addCleanup*(result: var KeyRenderResult; cleanup: proc ()) =
     result.cleanups.add(cleanup)
+
+
+  proc childIndex(parent, child: Node): int =
+    result = -1
+    if parent.isNil or child.isNil:
+      return
+    var idx = 0
+    var cur = jsGetNodeProp(parent, cstring("firstChild"))
+    while not cur.isNil:
+      if cur == child:
+        result = idx
+        return
+      inc idx
+      cur = jsGetNodeProp(cur, cstring("nextSibling"))
+
+
+  proc computeNodePath(root, node: Node): seq[int] =
+    var current = node
+    while not current.isNil and current != root:
+      let parent = jsGetNodeProp(current, cstring("parentNode"))
+      if parent.isNil:
+        break
+      let idx = childIndex(parent, current)
+      if idx < 0:
+        break
+      result.insert(idx, 0)
+      current = parent
+
+
+  proc addEventBinding*(result: var KeyRenderResult; node: Node; eventType: cstring; handler: proc (e: Event)) =
+    let path = computeNodePath(result.root, node)
+    result.eventBindings.add(KeyEventBinding(
+      node: node,
+      nodeIndex: -1,
+      path: path,
+      eventType: eventType,
+      handler: handler
+    ))
+
+
+  proc addEventBindingCurrent*(node: Node; eventType: cstring; handler: proc (e: Event)) =
+    if currentKeyedResult != nil:
+      addEventBinding(currentKeyedResult[], node, eventType, handler)
 
 
   proc beginKeyedCapture*(res: var KeyRenderResult) =
@@ -173,6 +223,7 @@ when defined(js):
 
   proc collectFlatNodes(root: Node): seq[Node] =
     result = @[]
+
     let t = nodeType(root)
 
     if t == 11: # DocumentFragment
@@ -193,6 +244,21 @@ when defined(js):
       res.nodes.add(n)
 
 
+  proc finalizeKeyedCapture*(res: var KeyRenderResult) =
+    if res.eventBindings.len == 0:
+      return
+    for i in 0 ..< res.eventBindings.len:
+      if res.eventBindings[i].nodeIndex >= 0:
+        continue
+      let nodeRef = res.eventBindings[i].node
+      var idx = -1
+      for j in 0 ..< res.nodes.len:
+        if res.nodes[j] == nodeRef:
+          idx = j
+          break
+      res.eventBindings[i].nodeIndex = idx
+
+
   proc collectFlatBetween(startMarker, endMarker: Node): seq[Node] =
     result = @[]
     var c = jsGetNodeProp(startMarker, cstring("nextSibling"))
@@ -202,12 +268,75 @@ when defined(js):
       c = jsGetNodeProp(c, cstring("nextSibling"))
 
 
-  proc patchEntryWithFresh*(startMarker, endMarker: Node, freshRoot: Node) =
-    if freshRoot.isNil:
+  proc nthChildBetween(startMarker, endMarker: Node, idx: int): Node =
+    var count = 0
+    var node = jsGetNodeProp(startMarker, cstring("nextSibling"))
+    while not node.isNil and node != endMarker:
+      if count == idx:
+        return node
+      inc count
+      node = jsGetNodeProp(node, cstring("nextSibling"))
+    return nil
+
+
+  proc childAt(parent: Node, idx: int): Node =
+    if parent.isNil:
+      return nil
+    var count = 0
+    var node = jsGetNodeProp(parent, cstring("firstChild"))
+    while not node.isNil:
+      if count == idx:
+        return node
+      inc count
+      node = jsGetNodeProp(node, cstring("nextSibling"))
+    return nil
+
+
+  proc resolveByPath(startMarker, endMarker: Node, path: seq[int]): Node =
+    if path.len == 0:
+      return nil
+    var current = nthChildBetween(startMarker, endMarker, path[0])
+    if current.isNil:
+      return nil
+    var i = 1
+    while i < path.len:
+      current = childAt(current, path[i])
+      if current.isNil:
+        return nil
+      inc i
+    current
+
+
+  proc applyEventBindings*(res: var KeyRenderResult; startMarker, endMarker: Node; liveNodes: seq[Node]) =
+    for i in 0 ..< res.eventBindings.len:
+      # Path capture currently yields [] for simple keyed children; keep this call
+      # so we can switch to true path-based rebinding later. Flat-index fallback
+      # below does the actual work today.
+      var target = resolveByPath(startMarker, endMarker, res.eventBindings[i].path)
+      when defined(debug):
+        let pathStr = res.eventBindings[i].path.mapIt($it).join(",")
+        echo "[keyed] resolving binding #", $i, " path=[", pathStr, "] target=", (if target.isNil: "nil" else: $jsGetStringProp(target, cstring("outerHTML")))
+      if target.isNil:
+        let idx = res.eventBindings[i].nodeIndex
+        if idx >= 0 and idx < liveNodes.len:
+          target = liveNodes[idx]
+        when defined(debug):
+          echo "[keyed] fallback to flat idx=", $idx, " target=", (if target.isNil: "nil" else: $jsGetStringProp(target, cstring("outerHTML")))
+      if target.isNil:
+        continue
+      let ev = res.eventBindings[i].eventType
+      let handler = res.eventBindings[i].handler
+      jsAddEventListener(target, ev, handler)
+      let remover = proc () = jsRemoveEventListener(target, ev, handler)
+      registerCleanup(target, remover)
+
+
+  proc patchEntryWithFresh*(res: var KeyRenderResult, startMarker, endMarker: Node) =
+    if res.root.isNil:
       return
 
     let oldFlat = collectFlatBetween(startMarker, endMarker)
-    let newFlat = collectFlatNodes(freshRoot)
+    let newFlat = collectFlatNodes(res.root)
     let nMin = (if oldFlat.len < newFlat.len: oldFlat.len else: newFlat.len)
     var i = 0
 
@@ -227,7 +356,9 @@ when defined(js):
 
       inc i
 
-    cleanupSubtree(freshRoot)
+    applyEventBindings(res, startMarker, endMarker, oldFlat)
+    res.nodes = oldFlat
+    cleanupSubtree(res.root)
 
 
   proc moveRange(parentNode: Node, beforeNode: Node, startMarker: Node, endMarker: Node) =
@@ -453,7 +584,7 @@ when defined(js):
     items: seq[T],
     key: proc (it: T): string,
     entryProc: proc (it: T): KeyRenderResult,
-    patch: proc (startMarker: Node, endMarker: Node, value: T)
+    patch: proc (startMarker: Node, endMarker: Node, value: T): KeyRenderResult
   ) =
     let startN = jsCreateTextNode(cstring(""))
     let endN = jsCreateTextNode(cstring(""))
@@ -499,7 +630,18 @@ when defined(js):
             needsUpdate = entry.value != it
 
           if needsUpdate:
-            patch(entry.startMarker, entry.endMarker, it)
+            when defined(debug):
+              echo "[keyed] running ", $entry.rendered.cleanups.len, " cleanups before patch (seq)"
+            for cleaner in entry.rendered.cleanups:
+              if cleaner != nil:
+                cleaner()
+            var freshRes: KeyRenderResult
+            if patch != nil:
+              freshRes = patch(entry.startMarker, entry.endMarker, it)
+            else:
+              freshRes = entryProc(it)
+              patchEntryWithFresh(freshRes, entry.startMarker, entry.endMarker)
+            entry.rendered = freshRes
 
           cursor = entry.endMarker
           entry.value = it
@@ -554,7 +696,7 @@ when defined(js):
     items: Signal[seq[T]],
     key: proc (it: T): string,
     entryProc: proc (it: T): KeyRenderResult,
-    patch: proc (startMarker: Node, endMarker: Node, value: T)
+    patch: proc (startMarker: Node, endMarker: Node, value: T): KeyRenderResult
   ) =
     let startN = jsCreateTextNode(cstring(""))
     let endN = jsCreateTextNode(cstring(""))
@@ -596,8 +738,20 @@ when defined(js):
 
           var needsUpdate = true
           when compiles(entry.value == it): needsUpdate = entry.value != it
+
           if needsUpdate:
-            patch(entry.startMarker, entry.endMarker, it)
+            when defined(debug):
+              echo "[keyed] running ", $entry.rendered.cleanups.len, " cleanups before patch (signal)"
+            for cleaner in entry.rendered.cleanups:
+              if cleaner != nil:
+                cleaner()
+            var freshRes: KeyRenderResult
+            if patch != nil:
+              freshRes = patch(entry.startMarker, entry.endMarker, it)
+            else:
+              freshRes = entryProc(it)
+              patchEntryWithFresh(freshRes, entry.startMarker, entry.endMarker)
+            entry.rendered = freshRes
 
           cursor = entry.endMarker
           entry.value = it

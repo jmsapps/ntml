@@ -430,9 +430,9 @@ macro defineHtmlElement*(tagNameLit: static[string]; args: varargs[untyped]): un
             # Render the keyed body into the fragment using the existing lowering
             copyNimTree(bindSectionEntry),
             lowerMountChildren(entryRoot, bodyForRender),
-            # Capture root + subtree nodes for later patching
-            newCall(ident"addNode", entryRes, entryRoot),
+            # Capture subtree nodes for later patching
             newCall(ident"captureSubtree", entryRes, entryRoot),
+            newCall(ident"finalizeKeyedCapture", entryRes),
             # End cleanup capture
             newCall(ident"endKeyedCapture"),
             entryRes
@@ -443,18 +443,19 @@ macro defineHtmlElement*(tagNameLit: static[string]; args: varargs[untyped]): un
         let patchStart: NimNode = genSym(nskParam, "s")
         let patchEnd: NimNode = genSym(nskParam, "e")
         let patchIt: NimNode = genSym(nskParam, "it")
-        let freshSym: NimNode = genSym(nskLet, "fresh")
+        let freshSym: NimNode = genSym(nskVar, "fresh")
         let patchProc: NimNode = newProc(
           patchFn,
           params = [
-            ident"void",
+            ident"KeyRenderResult",
             newIdentDefs(patchStart, ident"Node"),
             newIdentDefs(patchEnd, ident"Node"),
             newIdentDefs(patchIt, ident"auto")
           ],
           body = newTree(nnkStmtList,
-            newLetStmt(freshSym, newCall(renderFn, patchIt)),
-            newCall(newDotExpr(ident"mount", ident"patchEntryWithFresh"), patchStart, patchEnd, freshSym)
+            newVarStmt(freshSym, newCall(entryFn, patchIt)),
+            newCall(newDotExpr(ident"mount", ident"patchEntryWithFresh"), freshSym, patchStart, patchEnd),
+            freshSym
           )
         )
 
@@ -526,6 +527,7 @@ macro defineHtmlElement*(tagNameLit: static[string]; args: varargs[untyped]): un
       node,
       newProc(body = newCall(ident"jsRemoveEventListener", node, eventTypeSym, handlerSym))
     ))
+    statements.add(newCall(newDotExpr(ident"mount", ident"addEventBindingCurrent"), node, eventTypeSym, handlerSym))
 
   statements.add(node)
 
