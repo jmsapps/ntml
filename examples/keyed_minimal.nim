@@ -102,3 +102,69 @@ when isMainModule and defined(js):
 
   let component: Node = App()
   discard jsAppendChild(document.body, component)
+
+  # Attach a MutationObserver to visualize keyed moves/patches in the console.
+  {.emit: """
+  (function () {
+    var target = document.getElementById("keyed-diffs");
+    if (!target) {
+      console.warn("[keyed_minimal] list not mounted yet");
+      return;
+    }
+
+    var counter = 1;
+    function tagNode(li) {
+      if (!li.dataset.instance) li.dataset.instance = String(counter++);
+    }
+    function tagExisting() {
+      target.querySelectorAll(":scope > li").forEach(tagNode);
+    }
+    tagExisting();
+
+    var obs = new MutationObserver(function (mutations) {
+      for (var i = 0; i < mutations.length; i++) {
+        var m = mutations[i];
+        if (m.type === "childList") {
+          Array.prototype.forEach.call(m.addedNodes, function (n) {
+            if (n.nodeType === 1 && n.tagName === "LI") {
+              tagNode(n);
+              console.log("ADDED   li", n.dataset.instance, n);
+            }
+          });
+          Array.prototype.forEach.call(m.removedNodes, function (n) {
+            if (n.nodeType === 1 && n.tagName === "LI") {
+              console.log("REMOVED li", n.dataset.instance || "(untagged)", n);
+            }
+          });
+        }
+        if (m.type === "characterData") {
+          var li = m.target.parentElement && m.target.parentElement.closest("li");
+          if (li) console.log("PATCH text in li", li.dataset.instance, "->", m.target.data);
+        }
+        if (m.type === "attributes") {
+          var li2 = m.target.closest && m.target.closest("li");
+          if (li2) console.log(
+            "PATCH attr",
+            m.attributeName,
+            "on li",
+            li2.dataset.instance,
+            "old:", m.oldValue,
+            "new:", m.target.getAttribute(m.attributeName)
+          );
+        }
+      }
+    });
+
+    obs.observe(target, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      characterDataOldValue: true,
+      attributes: true,
+      attributeOldValue: true,
+      attributeFilter: ["class", "value", "checked", "title"]
+    });
+
+    console.log("[keyed_minimal] Observer ready; all <li> nodes will auto-tag when added.");
+  })();
+  """.}
