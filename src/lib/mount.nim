@@ -307,7 +307,24 @@ when defined(js):
     current
 
 
-  proc applyEventBindings*(res: var KeyRenderResult; startMarker, endMarker: Node; liveNodes: seq[Node]) =
+  proc bindingKey(binding: KeyEventBinding): string =
+    let ev = $binding.eventType
+    if binding.nodeIndex >= 0:
+      return "idx:" & $binding.nodeIndex & "|" & ev
+    if binding.path.len > 0:
+      var parts: seq[string] = @[]
+      for v in binding.path:
+        parts.add($v)
+      return "path:" & parts.join("/") & "|" & ev
+    return "fallback|" & ev
+
+
+  proc applyEventBindings*(res: var KeyRenderResult; startMarker, endMarker: Node; liveNodes: seq[Node]; prevBindings: seq[KeyEventBinding] = @[]) =
+    var prevMap = initTable[string, KeyEventBinding]()
+    for prev in prevBindings:
+      let key = bindingKey(prev)
+      prevMap[key] = prev
+
     for i in 0 ..< res.eventBindings.len:
       # Path capture currently yields [] for simple keyed children; keep this call
       # so we can switch to true path-based rebinding later. Flat-index fallback
@@ -325,13 +342,20 @@ when defined(js):
       if target.isNil:
         continue
       let ev = res.eventBindings[i].eventType
+      let key = bindingKey(res.eventBindings[i])
+      if prevMap.hasKey(key):
+        let prevHandler = prevMap[key].handler
+        if prevHandler != nil:
+          jsRemoveEventListener(target, ev, prevHandler)
       let handler = res.eventBindings[i].handler
+      jsRemoveEventListener(target, ev, handler)
       jsAddEventListener(target, ev, handler)
       let remover = proc () = jsRemoveEventListener(target, ev, handler)
       registerCleanup(target, remover)
+      res.cleanups.add(remover)
 
 
-  proc patchEntryWithFresh*(res: var KeyRenderResult, startMarker, endMarker: Node) =
+  proc patchEntryWithFresh*(res: var KeyRenderResult, startMarker, endMarker: Node, prevBindings: seq[KeyEventBinding] = @[]) =
     if res.root.isNil:
       return
 
@@ -356,7 +380,7 @@ when defined(js):
 
       inc i
 
-    applyEventBindings(res, startMarker, endMarker, oldFlat)
+    applyEventBindings(res, startMarker, endMarker, oldFlat, prevBindings)
     res.nodes = oldFlat
     cleanupSubtree(res.root)
 
@@ -549,6 +573,8 @@ when defined(js):
       let parentNode = jsGetNodeProp(endN, cstring("parentNode"))
       if parentNode.isNil:
         return
+      when defined(debug):
+        echo "[keyed] keyed-rerender(seq) len=", $xs.len
       removeBetween(parentNode, startN, endN)
       let frag = jsCreateFragment()
       for it in xs:
@@ -568,6 +594,8 @@ when defined(js):
       let parentNode = jsGetNodeProp(endN, cstring("parentNode"))
       if parentNode.isNil:
         return
+      when defined(debug):
+        echo "[keyed] keyed-rerender(signal) len=", $xs.len
       removeBetween(parentNode, startN, endN)
       let frag = jsCreateFragment()
       for it in xs:
@@ -584,7 +612,7 @@ when defined(js):
     items: seq[T],
     key: proc (it: T): string,
     entryProc: proc (it: T): KeyRenderResult,
-    patch: proc (startMarker: Node, endMarker: Node, value: T): KeyRenderResult
+    patch: proc (startMarker: Node, endMarker: Node, prevBindings: seq[KeyEventBinding], value: T): KeyRenderResult
   ) =
     let startN = jsCreateTextNode(cstring(""))
     let endN = jsCreateTextNode(cstring(""))
@@ -635,12 +663,13 @@ when defined(js):
             for cleaner in entry.rendered.cleanups:
               if cleaner != nil:
                 cleaner()
+            entry.rendered.cleanups.setLen(0)
             var freshRes: KeyRenderResult
             if patch != nil:
-              freshRes = patch(entry.startMarker, entry.endMarker, it)
+              freshRes = patch(entry.startMarker, entry.endMarker, entry.rendered.eventBindings, it)
             else:
               freshRes = entryProc(it)
-              patchEntryWithFresh(freshRes, entry.startMarker, entry.endMarker)
+              patchEntryWithFresh(freshRes, entry.startMarker, entry.endMarker, entry.rendered.eventBindings)
             entry.rendered = freshRes
 
           cursor = entry.endMarker
@@ -696,7 +725,7 @@ when defined(js):
     items: Signal[seq[T]],
     key: proc (it: T): string,
     entryProc: proc (it: T): KeyRenderResult,
-    patch: proc (startMarker: Node, endMarker: Node, value: T): KeyRenderResult
+    patch: proc (startMarker: Node, endMarker: Node, prevBindings: seq[KeyEventBinding], value: T): KeyRenderResult
   ) =
     let startN = jsCreateTextNode(cstring(""))
     let endN = jsCreateTextNode(cstring(""))
@@ -745,12 +774,13 @@ when defined(js):
             for cleaner in entry.rendered.cleanups:
               if cleaner != nil:
                 cleaner()
+            entry.rendered.cleanups.setLen(0)
             var freshRes: KeyRenderResult
             if patch != nil:
-              freshRes = patch(entry.startMarker, entry.endMarker, it)
+              freshRes = patch(entry.startMarker, entry.endMarker, entry.rendered.eventBindings, it)
             else:
               freshRes = entryProc(it)
-              patchEntryWithFresh(freshRes, entry.startMarker, entry.endMarker)
+              patchEntryWithFresh(freshRes, entry.startMarker, entry.endMarker, entry.rendered.eventBindings)
             entry.rendered = freshRes
 
           cursor = entry.endMarker

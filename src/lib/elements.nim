@@ -442,6 +442,7 @@ macro defineHtmlElement*(tagNameLit: static[string]; args: varargs[untyped]): un
         let patchFn: NimNode = genSym(nskProc, "patch")
         let patchStart: NimNode = genSym(nskParam, "s")
         let patchEnd: NimNode = genSym(nskParam, "e")
+        let patchPrev: NimNode = genSym(nskParam, "prev")
         let patchIt: NimNode = genSym(nskParam, "it")
         let freshSym: NimNode = genSym(nskVar, "fresh")
         let patchProc: NimNode = newProc(
@@ -450,11 +451,15 @@ macro defineHtmlElement*(tagNameLit: static[string]; args: varargs[untyped]): un
             ident"KeyRenderResult",
             newIdentDefs(patchStart, ident"Node"),
             newIdentDefs(patchEnd, ident"Node"),
+            newIdentDefs(
+              patchPrev,
+              newTree(nnkBracketExpr, ident"seq", ident"KeyEventBinding")
+            ),
             newIdentDefs(patchIt, ident"auto")
           ],
           body = newTree(nnkStmtList,
             newVarStmt(freshSym, newCall(entryFn, patchIt)),
-            newCall(newDotExpr(ident"mount", ident"patchEntryWithFresh"), freshSym, patchStart, patchEnd),
+            newCall(newDotExpr(ident"mount", ident"patchEntryWithFresh"), freshSym, patchStart, patchEnd, patchPrev),
             freshSym
           )
         )
