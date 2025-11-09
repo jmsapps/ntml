@@ -425,12 +425,16 @@ macro defineHtmlElement*(tagNameLit: static[string]; args: varargs[untyped]): un
             # Build a fresh fragment and initialize capture result
             newLetStmt(entryRoot, newCall(ident"jsCreateFragment")),
             newVarStmt(entryRes, newCall(ident"initKeyRenderResult", entryRoot)),
+            # Begin cleanup capture so registerCleanup also records into entryRes
+            newCall(ident"beginKeyedCapture", entryRes),
             # Render the keyed body into the fragment using the existing lowering
             copyNimTree(bindSectionEntry),
             lowerMountChildren(entryRoot, bodyForRender),
             # Capture root + subtree nodes for later patching
             newCall(ident"addNode", entryRes, entryRoot),
             newCall(ident"captureSubtree", entryRes, entryRoot),
+            # End cleanup capture
+            newCall(ident"endKeyedCapture"),
             entryRes
           )
         )

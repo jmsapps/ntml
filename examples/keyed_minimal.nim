@@ -59,7 +59,7 @@ when isMainModule and defined(js):
           li: "Click 'Rename' on an item, then 'Say Captured' — this logs the old text (closure capture)."
           li: "After renaming, 'Say Current' reads fresh state by id and logs the updated text."
           li: "Add / Remove First to verify list identity is preserved for unaffected items."
-          li: "Optional: run the MutationObserver snippet from museum/005_targetNode.md on '#keyed-diffs' to observe moves (remove+add pairs for the same li)."
+          li: "Check the console to view the MutationObserver on '#keyed-diffs' to observe moves (remove+add pairs for the same li)."
 
       d:
         button(`type`="button", onClick = proc (e: Event) = add()): "Add"
@@ -103,7 +103,6 @@ when isMainModule and defined(js):
   let component: Node = App()
   discard jsAppendChild(document.body, component)
 
-  # Attach a MutationObserver to visualize keyed moves/patches in the console.
   {.emit: """
   (function () {
     var target = document.getElementById("keyed-diffs");

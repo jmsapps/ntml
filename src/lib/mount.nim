@@ -106,6 +106,23 @@ when defined(js):
     result.nodes.add(node)
 
 
+  proc addCleanup*(result: var KeyRenderResult; cleanup: proc ()) =
+    result.cleanups.add(cleanup)
+
+
+  proc beginKeyedCapture*(res: var KeyRenderResult) =
+    currentKeyedResult = addr res
+    setCleanupHook(proc (u: Unsub) =
+      if u != nil and currentKeyedResult != nil:
+        addCleanup(currentKeyedResult[], proc () = u())
+    )
+
+
+  proc endKeyedCapture*() =
+    clearCleanupHook()
+    currentKeyedResult = nil
+
+
   proc nodeType(n: Node): int {.inline.} = jsGetIntProp(n, cstring("nodeType"))
 
 
