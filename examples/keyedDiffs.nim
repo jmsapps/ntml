@@ -7,6 +7,156 @@ when isMainModule and defined(js):
       id: int
       text: string
 
+  styled AppShell = d:
+    """
+      min-height: 100vh;
+      padding: 2.5rem 1rem 3.5rem;
+      background: radial-gradient(circle at top, #dbeafe, #eff6ff 55%, #e0f2fe);
+      font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      color: #0f172a;
+    """
+
+  styled DemoPanel = d:
+    """
+      margin: 0 auto;
+      background: #fff;
+      border-radius: 28px;
+      padding: 2.5rem;
+      box-shadow: 0 30px 90px rgba(15, 23, 42, 0.12);
+      display: flex;
+      flex-direction: column;
+      gap: 1.75rem;
+    """
+
+  styled SectionHeading = h1:
+    """
+      margin: 0;
+      font-size: clamp(2.1rem, 4vw, 2.8rem);
+      color: #111827;
+    """
+
+  styled SectionSubheading = h2:
+    """
+      margin: 0;
+      font-size: 1.2rem;
+      font-weight: 600;
+      color: #1d4ed8;
+    """
+
+  styled InstructionList = ul:
+    """
+      margin: 0;
+      padding-left: 1.4rem;
+      color: #475569;
+      line-height: 1.65;
+    """
+
+  styled ControlRow = d:
+    """
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    """
+
+  styled PrimaryButton = button:
+    """
+      border: none;
+      border-radius: 999px;
+      padding: 0.75rem 1.4rem;
+      font-weight: 600;
+      font-size: 0.95rem;
+      cursor: pointer;
+      transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+      color: #fff;
+      background: linear-gradient(135deg, #2563eb, #3b82f6);
+      box-shadow: 0 12px 20px rgba(37, 99, 235, 0.25);
+    """
+
+  styled NeutralButton = PrimaryButton:
+    """
+      background: #0f172a;
+      box-shadow: 0 12px 25px rgba(15, 23, 42, 0.25);
+    """
+
+  styled KeyedList = ul:
+    """
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.9rem;
+    """
+
+  styled KeyedItem = li:
+    """
+      background: #f8fafc;
+      border-radius: 18px;
+      padding: 1rem 1.25rem;
+      box-shadow: 0 10px 25px rgba(15, 23, 42, 0.06);
+      border: 1px solid #e2e8f0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.65rem;
+    """
+
+  styled ItemHeader = d:
+    """
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      font-weight: 600;
+      color: #0f172a;
+    """
+
+  styled ItemBadge = span:
+    """
+      min-width: 48px;
+      padding: 0.2rem 0.65rem;
+      border-radius: 999px;
+      background: rgba(37, 99, 235, 0.12);
+      color: #2563eb;
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+    """
+
+  styled ItemButtons = d:
+    """
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    """
+
+  styled ItemButton = button:
+    """
+      border-radius: 10px;
+      border: 1px solid #d4dbe8;
+      padding: 0.45rem 0.85rem;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #0f172a;
+      background: #fff;
+      cursor: pointer;
+      transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+      box-shadow: 0 5px 12px rgba(15, 23, 42, 0.05);
+    """
+
+  styled ItemDangerButton = ItemButton:
+    """
+      background: #ef4444;
+      border-color: #ef4444;
+      color: #fff;
+      box-shadow: 0 6px 16px rgba(239, 68, 68, 0.3);
+    """
+
+  let guidance = @[
+    "Click 'To Front' on any item to reorder without losing event handlers.",
+    "Use 'Rename' repeatedly to mutate a keyed row in place.",
+    "Add / Remove First to confirm unaffected items keep their DOM nodes.",
+    "Compare 'Say Captured' vs 'Say Current' to see closure vs lookup behavior.",
+    "Open DevTools → Console to watch the MutationObserver log per-node edits."
+  ]
+
   proc App(): Node =
     let items = signal(@[
       Item(id: 1, text: "A"),
@@ -49,56 +199,60 @@ when isMainModule and defined(js):
         xs.insert(v, 0)
         items.set(xs)
 
-    d:
-      h1: "Keyed Minimal"
+    AppShell:
+      DemoPanel:
+        SectionHeading: "Keyed Diffs"
 
-      d:
-        h2: "How to test"
-        ul:
-          li: "Click 'To Front' on any item to reorder; 'Click' should still log the correct id."
-          li: "Click 'Rename' on an item, then 'Say Captured' — this logs the old text (closure capture)."
-          li: "After renaming, 'Say Current' reads fresh state by id and logs the updated text."
-          li: "Add / Remove First to verify list identity is preserved for unaffected items."
-          li: "Check the console to view the MutationObserver on '#keyed-diffs' to observe moves (remove+add pairs for the same li)."
+        SectionSubheading: "How to test"
+        InstructionList:
+          for tip in guidance:
+            li: tip
 
-      d:
-        button(`type`="button", onClick = proc (e: Event) = add()): "Add"
-        button(`type`="button", onClick = proc (e: Event) = removeFirst()): "Remove First"
-        button(`type`="button", onClick = proc (e: Event) = swapFirstTwo()): "Swap First Two"
+        ControlRow:
+          PrimaryButton(`type`="button", onClick = proc (e: Event) = add()):
+            "Add"
+          NeutralButton(`type`="button", onClick = proc (e: Event) = removeFirst()):
+            "Remove First"
+          NeutralButton(`type`="button", onClick = proc (e: Event) = swapFirstTwo()):
+            "Swap First Two"
 
-      ul(id="keyed-diffs"):
-        for it in items:
-          li(key=it.id):
-            span: $(it.id) & ": " & it.text
-            # Handler capturing only the stable id (safe under reorders)
-            button(`type`="button", onClick = proc (e: Event) = echo "clicked id=" & $(it.id)):
-              "Click"
-            # Rename this item without changing its key; triggers a keyed update
-            button(`type`="button", onClick = proc (e: Event) =
-              var xs = items.get()
-              for i in 0 ..< xs.len:
-                if xs[i].id == it.id:
-                  xs[i].text = xs[i].text & "*"
-                  break
-              items.set(xs)
-            ):
-              "Rename"
-            # Demonstrate closure capturing the text value (should update after rename)
-            let capturedText = it.text
-            button(`type`="button", onClick = proc (e: Event) = echo "captured text=" & capturedText):
-              "Say Captured"
-            # Safe pattern: read current text by id at click time
-            button(`type`="button", onClick = proc (e: Event) =
-              var cur = "?"
-              for x in items.get():
-                if x.id == it.id: cur = x.text
-              echo "current text=" & cur
-            ):
-              "Say Current"
-            button(`type`="button", onClick = proc (e: Event) = moveToFront(it.id)):
-              "To Front"
-            button(`type`="button", onClick = proc (e: Event) = removeById(it.id)):
-              "Remove"
+        KeyedList(id="keyed-diffs"):
+          for it in items:
+            KeyedItem(key=it.id):
+              ItemHeader:
+                ItemBadge: "#" & $(it.id)
+                span: it.text
+
+              ItemButtons:
+                ItemButton(`type`="button", onClick = proc (e: Event) = echo "clicked id=" & $(it.id)):
+                  "Click"
+                ItemButton(`type`="button", onClick = proc (e: Event) =
+                  var xs = items.get()
+                  var newText = ""
+                  for i in 0 ..< xs.len:
+                    if xs[i].id == it.id:
+                      xs[i].text = xs[i].text & "*"
+                      newText = xs[i].text
+                      break
+                  when defined(debug):
+                    echo "[keyed] rename handler id=", it.id, " newText=", newText
+                  items.set(xs)
+                ):
+                  "Rename"
+                let capturedText = it.text
+                ItemButton(`type`="button", onClick = proc (e: Event) = echo "captured text=" & capturedText):
+                  "Say Captured"
+                ItemButton(`type`="button", onClick = proc (e: Event) =
+                  var cur = "?"
+                  for x in items.get():
+                    if x.id == it.id: cur = x.text
+                  echo "current text=" & cur
+                ):
+                  "Say Current"
+                ItemButton(`type`="button", onClick = proc (e: Event) = moveToFront(it.id)):
+                  "To Front"
+                ItemDangerButton(`type`="button", onClick = proc (e: Event) = removeById(it.id)):
+                  "Remove"
 
   let component: Node = App()
   discard jsAppendChild(document.body, component)

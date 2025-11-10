@@ -106,12 +106,6 @@
 - Coalesce multiple signal updates in a microtask.
 - Prevent redundant sequential DOM writes.
 
-### ⬜️ Full Keyed Patch Helpers
-
-- Extend keyed lowering to capture node refs, attributes, and handlers per entry.
-- Emit patch helpers so updates re-apply expressions without rebuilding nodes.
-- Rebind event listeners/cleanups when keyed values change to avoid stale closures.
-
 ### ⬜️ Component Lifecycle Hooks
 
 - Add `onMount(fn)` and `onCleanup(fn)`.
@@ -121,3 +115,13 @@
 ### ⬜️ Hash Routing
 
 - Have webpage auto scroll to relative fragment identifiers
+
+---
+
+## Version 2.0.0 — Performance enhancements
+
+### ⬜️ Full Keyed Patch Helpers
+
+- Extend keyed lowering to capture node refs, attributes, and handlers per entry.
+- Emit patch helpers so updates re-apply expressions without rebuilding nodes.
+- Rebind event listeners/cleanups when keyed values change to avoid stale closures.
