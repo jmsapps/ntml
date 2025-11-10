@@ -517,20 +517,32 @@ when defined(js):
             let nv = textContentOf(newNode)
             if nv != textContentOf(existing):
               setTextContent(existing, nv)
+              when defined(debug):
+                echo "[keyed] patch text path=", key, " -> ", $nv
           elif ot == 1 and nt == 1:
             patchBasicElementProps(existing, newNode)
+            when defined(debug):
+              echo "[keyed] patch props path=", key
           else:
             removeDomNode(existing)
             insertNodeAtPath(parentNode, startMarker, endMarker, path, newNode)
+            when defined(debug):
+              echo "[keyed] replace node path=", key
         else:
           removeDomNode(existing)
           insertNodeAtPath(parentNode, startMarker, endMarker, path, newNode)
+          when defined(debug):
+            echo "[keyed] replace node path=", key
         oldMap.del(key)
       else:
         insertNodeAtPath(parentNode, startMarker, endMarker, path, newNode)
+        when defined(debug):
+          echo "[keyed] insert node path=", key
 
-    for node in oldMap.values:
+    for leftoverKey, node in oldMap.pairs:
       removeDomNode(node)
+      when defined(debug):
+        echo "[keyed] remove node path=", leftoverKey
 
     let updated = collectBetweenWithPaths(startMarker, endMarker)
     applyEventBindings(res, startMarker, endMarker, updated.nodes, prevBindings)

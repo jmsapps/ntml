@@ -206,8 +206,11 @@ when isMainModule and defined(js):
       gap: 0.5rem;
     """
 
-  styled NestedPill = span:
+  styled NestedPill = li:
     """
+      list-style: none;
+      display: inline-flex;
+      align-items: center;
       padding: 0.35rem 0.75rem;
       border-radius: 999px;
       background: rgba(14, 116, 144, 0.12);
@@ -242,7 +245,7 @@ when isMainModule and defined(js):
       color: var(--accent, #38bdf8);
     """
 
-  styled CheckboxRow = label:
+  styled CheckboxLabel = label:
     """
       display: flex;
       align-items: center;
@@ -252,18 +255,14 @@ when isMainModule and defined(js):
       border: 1px solid #e2e8f0;
       background: white;
       cursor: pointer;
+      font-weight: 600;
+      color: #0f172a;
     """
 
   styled CheckboxInput = input:
     """
       width: 16px;
       height: 16px;
-    """
-
-  styled CheckboxLabel = span:
-    """
-      font-weight: 600;
-      color: #0f172a;
     """
 
   proc App(): Node =
@@ -522,7 +521,8 @@ when isMainModule and defined(js):
                   "Add Book"
               NestedList:
                 for book in shelf.books:
-                  NestedPill(key=book.id): book.title
+                  NestedPill(key=book.id):
+                    book.title
 
         PanelSection:
           PanelTitle: "Mixed keyed / static siblings"
@@ -582,21 +582,19 @@ when isMainModule and defined(js):
           KeyedList:
             for todo in tasks:
               KeyedItem(key=todo.id):
-                CheckboxRow:
+                CheckboxLabel:
                   CheckboxInput(
                     id=todo.id,
                     `type`="checkbox",
                     checked=todo.done,
                     onChange = proc (e: Event) = toggleTask(todo.id)
                   )
-                  CheckboxLabel(
-                    onClick = proc (e: Event) = toggleTask(todo.id)
-                  ):
-                    if todo.done:
-                      "✅ "
-                    else:
-                      ""
-                    todo.label
+
+                  if todo.done:
+                    "✅ "
+                  else:
+                    ""
+                  todo.label
 
         PanelSection:
           PanelTitle: "Effect cleanup during keyed moves"
@@ -645,68 +643,3 @@ when isMainModule and defined(js):
 
   let component: Node = App()
   discard jsAppendChild(document.body, component)
-
-  {.emit: """
-  (function () {
-    var target = document.getElementById("keyed-diffs");
-    if (!target) {
-      console.warn("[keyed_minimal] list not mounted yet");
-      return;
-    }
-
-    var counter = 1;
-    function tagNode(li) {
-      if (!li.dataset.instance) li.dataset.instance = String(counter++);
-    }
-    function tagExisting() {
-      target.querySelectorAll(":scope > li").forEach(tagNode);
-    }
-    tagExisting();
-
-    var obs = new MutationObserver(function (mutations) {
-      for (var i = 0; i < mutations.length; i++) {
-        var m = mutations[i];
-        if (m.type === "childList") {
-          Array.prototype.forEach.call(m.addedNodes, function (n) {
-            if (n.nodeType === 1 && n.tagName === "LI") {
-              tagNode(n);
-              console.log("ADDED   li", n.dataset.instance, n);
-            }
-          });
-          Array.prototype.forEach.call(m.removedNodes, function (n) {
-            if (n.nodeType === 1 && n.tagName === "LI") {
-              console.log("REMOVED li", n.dataset.instance || "(untagged)", n);
-            }
-          });
-        }
-        if (m.type === "characterData") {
-          var li = m.target.parentElement && m.target.parentElement.closest("li");
-          if (li) console.log("PATCH text in li", li.dataset.instance, "->", m.target.data);
-        }
-        if (m.type === "attributes") {
-          var li2 = m.target.closest && m.target.closest("li");
-          if (li2) console.log(
-            "PATCH attr",
-            m.attributeName,
-            "on li",
-            li2.dataset.instance,
-            "old:", m.oldValue,
-            "new:", m.target.getAttribute(m.attributeName)
-          );
-        }
-      }
-    });
-
-    obs.observe(target, {
-      childList: true,
-      subtree: true,
-      characterData: true,
-      characterDataOldValue: true,
-      attributes: true,
-      attributeOldValue: true,
-      attributeFilter: ["class", "value", "checked", "title"]
-    });
-
-    console.log("[keyed_minimal] Observer ready; all <li> nodes will auto-tag when added.");
-  })();
-  """.}
