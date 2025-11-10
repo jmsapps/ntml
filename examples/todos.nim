@@ -1,4 +1,4 @@
-when defined(js):
+when isMainModule and defined(js):
   import std/[sequtils, strutils]
   import ../src/ntml
 
@@ -101,10 +101,10 @@ when defined(js):
         button(`type`="button", class=filterClass("completed"), onClick = proc (e: Event) = setFilter("completed")):
           "Completed"
 
-      ul(class="todo-list"):
+      ul(id="todo-list", class="todo-list"):
         for todo in filteredTodos:
           let todoId = todo.id
-          li(class = (if todo.done: "todo-item is-done" else: "todo-item")):
+          li(key=todo.id, class = (if todo.done: "todo-item is-done" else: "todo-item")):
             label(class="todo-row"):
               input(
                 class="todo-checkbox",
@@ -292,5 +292,4 @@ when defined(js):
           }
         """
 
-  when isMainModule:
-    render(TodoApp())
+  render(TodoApp())

@@ -41,6 +41,11 @@
 
 - Implement `navigate()` method and basic routing logic.
 
+### ✅ Keyed List Rendering
+
+- Improve `for` rendering via keyed reconciliation.
+- Update only changed elements to scale efficiently for large lists.
+
 ---
 
 ## Version 0.6.0 — Stability & Scale
@@ -80,11 +85,6 @@
 - Avoid unnecessary re-renders.
 - Support selective propagation in structured data (objects, sequences).
 
-### ⬜️ Keyed List Rendering
-
-- Improve `for` rendering via keyed reconciliation.
-- Update only changed elements to scale efficiently for large lists.
-
 ### ⬜️ Error Boundaries
 
 - Catch signal/effect errors locally.
@@ -115,3 +115,13 @@
 ### ⬜️ Hash Routing
 
 - Have webpage auto scroll to relative fragment identifiers
+
+---
+
+## Version 2.0.0 — Performance enhancements
+
+### ⬜️ Full Keyed Patch Helpers
+
+- Extend keyed lowering to capture node refs, attributes, and handlers per entry.
+- Emit patch helpers so updates re-apply expressions without rebuilding nodes.
+- Rebind event listeners/cleanups when keyed values change to avoid stale closures.
