@@ -1,5 +1,5 @@
 when defined(js):
-  from dom import Node
+  from dom import Node, Event
   import
     tables
 
@@ -31,12 +31,20 @@ when defined(js):
       signal*: Signal[string]
       isSignal*: bool
 
-    KeyPatchProc*[T] = proc (root: Node, value: T)
+    KeyEventBinding* = object
+      node*: Node
+      nodeIndex*: int
+      path*: seq[int]
+      eventType*: cstring
+      handler*: proc (e: Event)
+
+    KeyPatchProc*[T] = proc (startMarker: Node, endMarker: Node, value: T): KeyRenderResult
 
     KeyRenderResult* = object
       root*: Node
       nodes*: seq[Node]
       cleanups*: seq[proc ()]
+      eventBindings*: seq[KeyEventBinding]
 
     KeyEntryCache*[T] = object
       entries*: Table[string, KeyRenderResult]

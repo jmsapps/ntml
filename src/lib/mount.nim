@@ -1,14 +1,15 @@
 when defined(js):
-  from dom import Node, Event
-  import
-    strutils
+  when defined(debug):
+    from sequtils import mapIt
 
-  import
-    constants,
-    shims,
-    signals,
-    styled,
-    tables
+  from dom import Node, Event
+  import strutils
+
+  import constants
+  import shims
+  import signals
+  import styled
+  import tables
 
   import types
 
@@ -97,13 +98,79 @@ when defined(js):
   proc initKeyRenderResult*(
     root: Node,
     nodes: seq[Node] = @[],
-    cleanups: seq[proc ()] = @[]
+    cleanups: seq[proc ()] = @[],
+    eventBindings: seq[KeyEventBinding] = @[]
   ): KeyRenderResult =
-    KeyRenderResult(root: root, nodes: nodes, cleanups: cleanups)
+    KeyRenderResult(
+      root: root,
+      nodes: nodes,
+      cleanups: cleanups,
+      eventBindings: eventBindings
+    )
 
 
   proc addNode*(result: var KeyRenderResult; node: Node) =
     result.nodes.add(node)
+
+
+  proc addCleanup*(result: var KeyRenderResult; cleanup: proc ()) =
+    result.cleanups.add(cleanup)
+
+
+  proc childIndex(parent, child: Node): int =
+    result = -1
+    if parent.isNil or child.isNil:
+      return
+    var idx = 0
+    var cur = jsGetNodeProp(parent, cstring("firstChild"))
+    while not cur.isNil:
+      if cur == child:
+        result = idx
+        return
+      inc idx
+      cur = jsGetNodeProp(cur, cstring("nextSibling"))
+
+
+  proc computeNodePath(root, node: Node): seq[int] =
+    var current = node
+    while not current.isNil and current != root:
+      let parent = jsGetNodeProp(current, cstring("parentNode"))
+      if parent.isNil:
+        break
+      let idx = childIndex(parent, current)
+      if idx < 0:
+        break
+      result.insert(idx, 0)
+      current = parent
+
+
+  proc addEventBinding*(result: var KeyRenderResult; node: Node; eventType: cstring; handler: proc (e: Event)) =
+    let path = computeNodePath(result.root, node)
+    result.eventBindings.add(KeyEventBinding(
+      node: node,
+      nodeIndex: -1,
+      path: path,
+      eventType: eventType,
+      handler: handler
+    ))
+
+
+  proc addEventBindingCurrent*(node: Node; eventType: cstring; handler: proc (e: Event)) =
+    if currentKeyedResult != nil:
+      addEventBinding(currentKeyedResult[], node, eventType, handler)
+
+
+  proc beginKeyedCapture*(res: var KeyRenderResult) =
+    currentKeyedResult = addr res
+    setCleanupHook(proc (u: Unsub) =
+      if u != nil and currentKeyedResult != nil:
+        addCleanup(currentKeyedResult[], proc () = u())
+    )
+
+
+  proc endKeyedCapture*() =
+    clearCleanupHook()
+    currentKeyedResult = nil
 
 
   proc nodeType(n: Node): int {.inline.} = jsGetIntProp(n, cstring("nodeType"))
@@ -134,6 +201,12 @@ when defined(js):
     if newChecked != oldChecked:
       jsSetProp(elOld, cstring("checked"), newChecked)
 
+    let newTitle = jsGetStringProp(elNew, cstring("title"))
+    let oldTitle = jsGetStringProp(elOld, cstring("title"))
+
+    if newTitle != oldTitle:
+      setStringAttr(elOld, "title", $newTitle)
+
 
   proc pushSubtreeAcc(n: Node, acc: var seq[Node]) =
     var cur = n
@@ -150,6 +223,7 @@ when defined(js):
 
   proc collectFlatNodes(root: Node): seq[Node] =
     result = @[]
+
     let t = nodeType(root)
 
     if t == 11: # DocumentFragment
@@ -163,6 +237,28 @@ when defined(js):
       pushSubtreeAcc(root, result)
 
 
+  proc captureSubtree*(res: var KeyRenderResult; root: Node) =
+    ## Collects all nodes under `root` and appends them to `res.nodes`.
+    let flat = collectFlatNodes(root)
+    for n in flat:
+      res.nodes.add(n)
+
+
+  proc finalizeKeyedCapture*(res: var KeyRenderResult) =
+    if res.eventBindings.len == 0:
+      return
+    for i in 0 ..< res.eventBindings.len:
+      if res.eventBindings[i].nodeIndex >= 0:
+        continue
+      let nodeRef = res.eventBindings[i].node
+      var idx = -1
+      for j in 0 ..< res.nodes.len:
+        if res.nodes[j] == nodeRef:
+          idx = j
+          break
+      res.eventBindings[i].nodeIndex = idx
+
+
   proc collectFlatBetween(startMarker, endMarker: Node): seq[Node] =
     result = @[]
     var c = jsGetNodeProp(startMarker, cstring("nextSibling"))
@@ -172,12 +268,99 @@ when defined(js):
       c = jsGetNodeProp(c, cstring("nextSibling"))
 
 
-  proc patchEntryWithFresh(startMarker, endMarker: Node, freshRoot: Node) =
-    if freshRoot.isNil:
+  proc nthChildBetween(startMarker, endMarker: Node, idx: int): Node =
+    var count = 0
+    var node = jsGetNodeProp(startMarker, cstring("nextSibling"))
+    while not node.isNil and node != endMarker:
+      if count == idx:
+        return node
+      inc count
+      node = jsGetNodeProp(node, cstring("nextSibling"))
+    return nil
+
+
+  proc childAt(parent: Node, idx: int): Node =
+    if parent.isNil:
+      return nil
+    var count = 0
+    var node = jsGetNodeProp(parent, cstring("firstChild"))
+    while not node.isNil:
+      if count == idx:
+        return node
+      inc count
+      node = jsGetNodeProp(node, cstring("nextSibling"))
+    return nil
+
+
+  proc resolveByPath(startMarker, endMarker: Node, path: seq[int]): Node =
+    if path.len == 0:
+      return nil
+    var current = nthChildBetween(startMarker, endMarker, path[0])
+    if current.isNil:
+      return nil
+    var i = 1
+    while i < path.len:
+      current = childAt(current, path[i])
+      if current.isNil:
+        return nil
+      inc i
+    current
+
+
+  proc bindingKey(binding: KeyEventBinding): string =
+    let ev = $binding.eventType
+    if binding.nodeIndex >= 0:
+      return "idx:" & $binding.nodeIndex & "|" & ev
+    if binding.path.len > 0:
+      var parts: seq[string] = @[]
+      for v in binding.path:
+        parts.add($v)
+      return "path:" & parts.join("/") & "|" & ev
+    return "fallback|" & ev
+
+
+  proc applyEventBindings*(res: var KeyRenderResult; startMarker, endMarker: Node; liveNodes: seq[Node]; prevBindings: seq[KeyEventBinding] = @[]) =
+    var prevMap = initTable[string, KeyEventBinding]()
+    for prev in prevBindings:
+      let key = bindingKey(prev)
+      prevMap[key] = prev
+
+    for i in 0 ..< res.eventBindings.len:
+      # Path capture currently yields [] for simple keyed children; keep this call
+      # so we can switch to true path-based rebinding later. Flat-index fallback
+      # below does the actual work today.
+      var target = resolveByPath(startMarker, endMarker, res.eventBindings[i].path)
+      when defined(debug):
+        let pathStr = res.eventBindings[i].path.mapIt($it).join(",")
+        echo "[keyed] resolving binding #", $i, " path=[", pathStr, "] target=", (if target.isNil: "nil" else: $jsGetStringProp(target, cstring("outerHTML")))
+      if target.isNil:
+        let idx = res.eventBindings[i].nodeIndex
+        if idx >= 0 and idx < liveNodes.len:
+          target = liveNodes[idx]
+        when defined(debug):
+          echo "[keyed] fallback to flat idx=", $idx, " target=", (if target.isNil: "nil" else: $jsGetStringProp(target, cstring("outerHTML")))
+      if target.isNil:
+        continue
+      let ev = res.eventBindings[i].eventType
+      let key = bindingKey(res.eventBindings[i])
+      if prevMap.hasKey(key):
+        let prevHandler = prevMap[key].handler
+        if prevHandler != nil:
+          jsRemoveEventListener(target, ev, prevHandler)
+      let handler = res.eventBindings[i].handler
+      jsRemoveEventListener(target, ev, handler)
+      jsAddEventListener(target, ev, handler)
+      let remover = proc () = jsRemoveEventListener(target, ev, handler)
+      registerCleanup(target, remover)
+      res.cleanups.add(remover)
+
+
+  proc patchEntryWithFresh*(res: var KeyRenderResult, startMarker, endMarker: Node, prevBindings: seq[KeyEventBinding] = @[]) =
+    if res.root.isNil:
       return
 
     let oldFlat = collectFlatBetween(startMarker, endMarker)
-    let newFlat = collectFlatNodes(freshRoot)
+    let newFlat = collectFlatNodes(res.root)
     let nMin = (if oldFlat.len < newFlat.len: oldFlat.len else: newFlat.len)
     var i = 0
 
@@ -197,7 +380,9 @@ when defined(js):
 
       inc i
 
-    cleanupSubtree(freshRoot)
+    applyEventBindings(res, startMarker, endMarker, oldFlat, prevBindings)
+    res.nodes = oldFlat
+    cleanupSubtree(res.root)
 
 
   proc moveRange(parentNode: Node, beforeNode: Node, startMarker: Node, endMarker: Node) =
@@ -388,6 +573,8 @@ when defined(js):
       let parentNode = jsGetNodeProp(endN, cstring("parentNode"))
       if parentNode.isNil:
         return
+      when defined(debug):
+        echo "[keyed] keyed-rerender(seq) len=", $xs.len
       removeBetween(parentNode, startN, endN)
       let frag = jsCreateFragment()
       for it in xs:
@@ -407,6 +594,8 @@ when defined(js):
       let parentNode = jsGetNodeProp(endN, cstring("parentNode"))
       if parentNode.isNil:
         return
+      when defined(debug):
+        echo "[keyed] keyed-rerender(signal) len=", $xs.len
       removeBetween(parentNode, startN, endN)
       let frag = jsCreateFragment()
       for it in xs:
@@ -422,8 +611,9 @@ when defined(js):
     parent: Node,
     items: seq[T],
     key: proc (it: T): string,
-    render: proc (it: T
-  ): KeyRenderResult) =
+    entryProc: proc (it: T): KeyRenderResult,
+    patch: proc (startMarker: Node, endMarker: Node, prevBindings: seq[KeyEventBinding], value: T): KeyRenderResult
+  ) =
     let startN = jsCreateTextNode(cstring(""))
     let endN = jsCreateTextNode(cstring(""))
     discard jsAppendChild(parent, startN)
@@ -436,29 +626,24 @@ when defined(js):
       if parentNode.isNil:
         return
 
-      var prevEntries = entries
+      var prev = entries
       entries = initTable[string, KeyEntry[T]]()
-
-      var cursor: Node = startN
+      var cursor = startN
       var dupCounts = initTable[string, int]()
 
       for it in xs:
         let baseKey = key(it)
         let occ = dupCounts.getOrDefault(baseKey, 0)
-
         dupCounts[baseKey] = occ + 1
-
-        var keyStr =
-          if occ == 0: baseKey
-          else: baseKey & "#dup" & $occ
+        let keyStr = if occ == 0: baseKey else: baseKey & "#dup" & $occ
 
         when defined(debug):
           if occ > 0:
             echo "ntml: duplicate key '" & baseKey & "' (occurrence " & $occ & ")"
 
-        if prevEntries.hasKey(keyStr):
-          var entry = prevEntries[keyStr]
-          prevEntries.del(keyStr)
+        if prev.hasKey(keyStr):
+          var entry = prev[keyStr]
+          prev.del(keyStr)
           var beforeNode = jsGetNodeProp(cursor, cstring("nextSibling"))
 
           if beforeNode.isNil:
@@ -473,15 +658,19 @@ when defined(js):
             needsUpdate = entry.value != it
 
           if needsUpdate:
-            # Build a fresh subtree and patch in place instead of full teardown
-            let fresh = render(it)
-
-            patchEntryWithFresh(entry.startMarker, entry.endMarker, fresh.root)
-
-            # Dispose any cleanups that the fresh render might have registered
-            for cleaner in fresh.cleanups:
+            when defined(debug):
+              echo "[keyed] running ", $entry.rendered.cleanups.len, " cleanups before patch (seq)"
+            for cleaner in entry.rendered.cleanups:
               if cleaner != nil:
                 cleaner()
+            entry.rendered.cleanups.setLen(0)
+            var freshRes: KeyRenderResult
+            if patch != nil:
+              freshRes = patch(entry.startMarker, entry.endMarker, entry.rendered.eventBindings, it)
+            else:
+              freshRes = entryProc(it)
+              patchEntryWithFresh(freshRes, entry.startMarker, entry.endMarker, entry.rendered.eventBindings)
+            entry.rendered = freshRes
 
           cursor = entry.endMarker
           entry.value = it
@@ -495,9 +684,12 @@ when defined(js):
           if beforeNode.isNil:
             beforeNode = endN
 
-          let rendered = render(it)
+          let rendered = entryProc(it)
           discard jsInsertBefore(parentNode, startMarker, beforeNode)
-          discard jsInsertBefore(parentNode, rendered.root, beforeNode)
+
+          if not rendered.root.isNil:
+            discard jsInsertBefore(parentNode, rendered.root, beforeNode)
+
           discard jsInsertBefore(parentNode, endMarker, beforeNode)
 
           cursor = endMarker
@@ -508,7 +700,7 @@ when defined(js):
             rendered: rendered
           )
 
-      for entry in prevEntries.values:
+      for entry in prev.values:
         let entryParent = jsGetNodeProp(entry.startMarker, cstring("parentNode"))
 
         if entryParent.isNil:
@@ -525,17 +717,15 @@ when defined(js):
         discard jsRemoveChild(entryParent, entry.endMarker)
 
     rerender(items)
-
-    registerCleanup(startN, proc () =
-      entries = initTable[string, KeyEntry[T]]()
-    )
+    registerCleanup(startN, proc () = entries = initTable[string, KeyEntry[T]]())
 
 
   proc mountChildForKeyed*[T](
     parent: Node,
     items: Signal[seq[T]],
     key: proc (it: T): string,
-    render: proc (it: T): KeyRenderResult
+    entryProc: proc (it: T): KeyRenderResult,
+    patch: proc (startMarker: Node, endMarker: Node, prevBindings: seq[KeyEventBinding], value: T): KeyRenderResult
   ) =
     let startN = jsCreateTextNode(cstring(""))
     let endN = jsCreateTextNode(cstring(""))
@@ -549,28 +739,24 @@ when defined(js):
       if parentNode.isNil:
         return
 
-      var prevEntries = entries
+      var prev = entries
       entries = initTable[string, KeyEntry[T]]()
-
-      var cursor: Node = startN
+      var cursor = startN
       var dupCounts = initTable[string, int]()
 
       for it in xs:
         let baseKey = key(it)
         let occ = dupCounts.getOrDefault(baseKey, 0)
         dupCounts[baseKey] = occ + 1
-
-        var keyStr =
-          if occ == 0: baseKey
-          else: baseKey & "#dup" & $occ
+        let keyStr = if occ == 0: baseKey else: baseKey & "#dup" & $occ
 
         when defined(debug):
           if occ > 0:
             echo "ntml: duplicate key '" & baseKey & "' (occurrence " & $occ & ")"
 
-        if prevEntries.hasKey(keyStr):
-          var entry = prevEntries[keyStr]
-          prevEntries.del(keyStr)
+        if prev.hasKey(keyStr):
+          var entry = prev[keyStr]
+          prev.del(keyStr)
           var beforeNode = jsGetNodeProp(cursor, cstring("nextSibling"))
 
           if beforeNode.isNil:
@@ -580,32 +766,42 @@ when defined(js):
             moveRange(parentNode, beforeNode, entry.startMarker, entry.endMarker)
 
           var needsUpdate = true
-
-          when compiles(entry.value == it):
-            needsUpdate = entry.value != it
+          when compiles(entry.value == it): needsUpdate = entry.value != it
 
           if needsUpdate:
-            let fresh = render(it)
-            patchEntryWithFresh(entry.startMarker, entry.endMarker, fresh.root)
-
-            for cleaner in fresh.cleanups:
+            when defined(debug):
+              echo "[keyed] running ", $entry.rendered.cleanups.len, " cleanups before patch (signal)"
+            for cleaner in entry.rendered.cleanups:
               if cleaner != nil:
                 cleaner()
+            entry.rendered.cleanups.setLen(0)
+            var freshRes: KeyRenderResult
+            if patch != nil:
+              freshRes = patch(entry.startMarker, entry.endMarker, entry.rendered.eventBindings, it)
+            else:
+              freshRes = entryProc(it)
+              patchEntryWithFresh(freshRes, entry.startMarker, entry.endMarker, entry.rendered.eventBindings)
+            entry.rendered = freshRes
 
           cursor = entry.endMarker
           entry.value = it
           entries[keyStr] = entry
+
         else:
           let startMarker = jsCreateTextNode(cstring(""))
           let endMarker = jsCreateTextNode(cstring(""))
-
           var beforeNode = jsGetNodeProp(cursor, cstring("nextSibling"))
+
           if beforeNode.isNil:
             beforeNode = endN
 
-          let rendered = render(it)
+          let rendered = entryProc(it)
+
           discard jsInsertBefore(parentNode, startMarker, beforeNode)
-          discard jsInsertBefore(parentNode, rendered.root, beforeNode)
+
+          if not rendered.root.isNil:
+            discard jsInsertBefore(parentNode, rendered.root, beforeNode)
+
           discard jsInsertBefore(parentNode, endMarker, beforeNode)
 
           cursor = endMarker
@@ -616,7 +812,7 @@ when defined(js):
             rendered: rendered
           )
 
-      for entry in prevEntries.values:
+      for entry in prev.values:
         let entryParent = jsGetNodeProp(entry.startMarker, cstring("parentNode"))
 
         if entryParent.isNil:

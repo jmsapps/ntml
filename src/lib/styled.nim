@@ -223,12 +223,6 @@ when defined(js):
         if cls.len > 0:
           releaseStyle(cls)
 
-    var child = jsGetNodeProp(el, cstring("firstChild"))
-    while child != nil:
-      let nxt = jsGetNodeProp(child, cstring("nextSibling"))
-      releaseStyledFromNode(child)
-      child = nxt
-
   addNodeDisposer(releaseStyledFromNode)
 
 

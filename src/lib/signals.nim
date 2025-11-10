@@ -10,6 +10,8 @@ when defined(js):
     cleanupRegistry: Table[system.int, seq[Unsub]] = initTable[int, seq[Unsub]]()
     nodeDisposers*: seq[NodeDisposer] = @[]
     nextId = 0
+    cleanupHook*: proc (u: Unsub) = nil
+    currentKeyedResult*: ptr KeyRenderResult = nil
 
 
   proc nodeKey(n: Node): int
@@ -31,6 +33,18 @@ when defined(js):
       cleanupRegistry[k] = @[]
 
     cleanupRegistry[k].add(fn)
+
+    if cleanupHook != nil and fn != nil:
+      cleanupHook(fn)
+
+
+  proc setCleanupHook*(h: proc (u: Unsub)) =
+    cleanupHook = h
+
+
+  proc clearCleanupHook*() =
+    cleanupHook = nil
+
 
   proc runCleanups*(el: Node) =
     let k = nodeKey(el)

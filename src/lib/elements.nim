@@ -416,14 +416,51 @@ macro defineHtmlElement*(tagNameLit: static[string]; args: varargs[untyped]): un
         let entryItSym: NimNode = genSym(nskParam, "it")
         let entryRoot: NimNode = genSym(nskLet, "root")
         let entryRes: NimNode = genSym(nskVar, "res")
+        let bindDefsEntry: NimNode = makeBindDefs(entryItSym)
+        let bindSectionEntry: NimNode = newTree(nnkLetSection, bindDefsEntry)
         let entryProc: NimNode = newProc(
           entryFn,
           params = [ident"KeyRenderResult", newIdentDefs(entryItSym, ident"auto")],
           body = newTree(nnkStmtList,
-            newLetStmt(entryRoot, newCall(renderFn, entryItSym)),
+            # Build a fresh fragment and initialize capture result
+            newLetStmt(entryRoot, newCall(ident"jsCreateFragment")),
             newVarStmt(entryRes, newCall(ident"initKeyRenderResult", entryRoot)),
-            newCall(ident"addNode", entryRes, entryRoot),
+            # Begin cleanup capture so registerCleanup also records into entryRes
+            newCall(ident"beginKeyedCapture", entryRes),
+            # Render the keyed body into the fragment using the existing lowering
+            copyNimTree(bindSectionEntry),
+            lowerMountChildren(entryRoot, bodyForRender),
+            # Capture subtree nodes for later patching
+            newCall(ident"captureSubtree", entryRes, entryRoot),
+            newCall(ident"finalizeKeyedCapture", entryRes),
+            # End cleanup capture
+            newCall(ident"endKeyedCapture"),
             entryRes
+          )
+        )
+
+        let patchFn: NimNode = genSym(nskProc, "patch")
+        let patchStart: NimNode = genSym(nskParam, "s")
+        let patchEnd: NimNode = genSym(nskParam, "e")
+        let patchPrev: NimNode = genSym(nskParam, "prev")
+        let patchIt: NimNode = genSym(nskParam, "it")
+        let freshSym: NimNode = genSym(nskVar, "fresh")
+        let patchProc: NimNode = newProc(
+          patchFn,
+          params = [
+            ident"KeyRenderResult",
+            newIdentDefs(patchStart, ident"Node"),
+            newIdentDefs(patchEnd, ident"Node"),
+            newIdentDefs(
+              patchPrev,
+              newTree(nnkBracketExpr, ident"seq", ident"KeyEventBinding")
+            ),
+            newIdentDefs(patchIt, ident"auto")
+          ],
+          body = newTree(nnkStmtList,
+            newVarStmt(freshSym, newCall(entryFn, patchIt)),
+            newCall(newDotExpr(ident"mount", ident"patchEntryWithFresh"), freshSym, patchStart, patchEnd, patchPrev),
+            freshSym
           )
         )
 
@@ -431,7 +468,8 @@ macro defineHtmlElement*(tagNameLit: static[string]; args: varargs[untyped]): un
           renderProc,
           keyProc,
           entryProc,
-          newCall(ident"mountChildForKeyed", parent, newCall(ident"guardSeq", iterExpr), keyFn, entryFn)
+          patchProc,
+          newCall(ident"mountChildForKeyed", parent, newCall(ident"guardSeq", iterExpr), keyFn, entryFn, patchFn)
         )
 
     of nnkWhileStmt:
@@ -494,6 +532,7 @@ macro defineHtmlElement*(tagNameLit: static[string]; args: varargs[untyped]): un
       node,
       newProc(body = newCall(ident"jsRemoveEventListener", node, eventTypeSym, handlerSym))
     ))
+    statements.add(newCall(newDotExpr(ident"mount", ident"addEventBindingCurrent"), node, eventTypeSym, handlerSym))
 
   statements.add(node)
 
