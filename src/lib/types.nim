@@ -43,6 +43,7 @@ when defined(js):
     KeyRenderResult* = object
       root*: Node
       nodes*: seq[Node]
+      nodePaths*: seq[seq[int]]
       cleanups*: seq[proc ()]
       eventBindings*: seq[KeyEventBinding]
 

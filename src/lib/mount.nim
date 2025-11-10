@@ -98,12 +98,14 @@ when defined(js):
   proc initKeyRenderResult*(
     root: Node,
     nodes: seq[Node] = @[],
+    nodePaths: seq[seq[int]] = @[],
     cleanups: seq[proc ()] = @[],
     eventBindings: seq[KeyEventBinding] = @[]
   ): KeyRenderResult =
     KeyRenderResult(
       root: root,
       nodes: nodes,
+      nodePaths: nodePaths,
       cleanups: cleanups,
       eventBindings: eventBindings
     )
@@ -221,6 +223,19 @@ when defined(js):
       cur = jsGetNodeProp(cur, cstring("nextSibling"))
 
 
+  proc collectTreeWithPaths(node: Node, basePath: seq[int], nodes: var seq[Node], paths: var seq[seq[int]]) =
+    nodes.add(node)
+    paths.add(basePath)
+    var child = jsGetNodeProp(node, cstring("firstChild"))
+    var idx = 0
+    while not child.isNil:
+      var nextPath = basePath
+      nextPath.add(idx)
+      collectTreeWithPaths(child, nextPath, nodes, paths)
+      child = jsGetNodeProp(child, cstring("nextSibling"))
+      inc idx
+
+
   proc collectFlatNodes(root: Node): seq[Node] =
     result = @[]
 
@@ -237,11 +252,59 @@ when defined(js):
       pushSubtreeAcc(root, result)
 
 
+  proc collectNodesWithPaths(root: Node): tuple[nodes: seq[Node], paths: seq[seq[int]]] =
+    result.nodes = @[]
+    result.paths = @[]
+    let t = nodeType(root)
+    if t == 11:
+      var child = jsGetNodeProp(root, cstring("firstChild"))
+      var idx = 0
+      while not child.isNil:
+        collectTreeWithPaths(child, @[idx], result.nodes, result.paths)
+        child = jsGetNodeProp(child, cstring("nextSibling"))
+        inc idx
+    else:
+      collectTreeWithPaths(root, @[0], result.nodes, result.paths)
+
+
+  proc collectBetweenWithPaths(startMarker, endMarker: Node): tuple[nodes: seq[Node], paths: seq[seq[int]]] =
+    result.nodes = @[]
+    result.paths = @[]
+    var cur = jsGetNodeProp(startMarker, cstring("nextSibling"))
+    var idx = 0
+    while not cur.isNil and cur != endMarker:
+      collectTreeWithPaths(cur, @[idx], result.nodes, result.paths)
+      cur = jsGetNodeProp(cur, cstring("nextSibling"))
+      inc idx
+
+
+  proc pathKey(path: seq[int]): string =
+    if path.len == 0:
+      return ""
+    result = $path[0]
+    var i = 1
+    while i < path.len:
+      result.add('#')
+      result.addInt(path[i])
+      inc i
+
+
+  proc removeDomNode(node: Node) =
+    if node == nil:
+      return
+    let parent = jsGetNodeProp(node, cstring("parentNode"))
+    if parent.isNil:
+      return
+    cleanupSubtree(node)
+    discard jsRemoveChild(parent, node)
+
+
   proc captureSubtree*(res: var KeyRenderResult; root: Node) =
     ## Collects all nodes under `root` and appends them to `res.nodes`.
-    let flat = collectFlatNodes(root)
-    for n in flat:
-      res.nodes.add(n)
+    let data = collectNodesWithPaths(root)
+    for i in 0 ..< data.nodes.len:
+      res.nodes.add(data.nodes[i])
+      res.nodePaths.add(data.paths[i])
 
 
   proc finalizeKeyedCapture*(res: var KeyRenderResult) =
@@ -290,6 +353,32 @@ when defined(js):
       inc count
       node = jsGetNodeProp(node, cstring("nextSibling"))
     return nil
+
+
+  proc resolveByPath(startMarker, endMarker: Node, path: seq[int]): Node
+
+
+  proc insertNodeAtPath(parentNode, startMarker, endMarker: Node, path: seq[int], node: Node) =
+    if path.len == 0:
+      discard jsInsertBefore(parentNode, node, endMarker)
+      return
+    let parentPathLen = path.len - 1
+    if parentPathLen == 0:
+      var target = nthChildBetween(startMarker, endMarker, path[^1])
+      if target.isNil:
+        discard jsInsertBefore(parentNode, node, endMarker)
+      else:
+        discard jsInsertBefore(parentNode, node, target)
+      return
+    let parentPath = path[0 ..< parentPathLen]
+    let parent = resolveByPath(startMarker, endMarker, parentPath)
+    if parent.isNil:
+      return
+    var child = childAt(parent, path[^1])
+    if child.isNil:
+      discard jsAppendChild(parent, node)
+    else:
+      discard jsInsertBefore(parent, node, child)
 
 
   proc resolveByPath(startMarker, endMarker: Node, path: seq[int]): Node =
@@ -355,34 +444,6 @@ when defined(js):
       res.cleanups.add(remover)
 
 
-  proc patchEntryWithFresh*(res: var KeyRenderResult, startMarker, endMarker: Node, prevBindings: seq[KeyEventBinding] = @[]) =
-    if res.root.isNil:
-      return
-
-    let oldFlat = collectFlatBetween(startMarker, endMarker)
-    let newFlat = collectFlatNodes(res.root)
-    let nMin = (if oldFlat.len < newFlat.len: oldFlat.len else: newFlat.len)
-    var i = 0
-
-    while i < nMin:
-      let o = oldFlat[i]
-      let n = newFlat[i]
-      let ot = nodeType(o)
-      let nt = nodeType(n)
-
-      if ot == 3 and nt == 3:
-        let nv = textContentOf(n)
-        if nv != textContentOf(o):
-          setTextContent(o, nv)
-
-      elif ot == 1 and nt == 1:
-        patchBasicElementProps(o, n)
-
-      inc i
-
-    applyEventBindings(res, startMarker, endMarker, oldFlat, prevBindings)
-    res.nodes = oldFlat
-    cleanupSubtree(res.root)
 
 
   proc moveRange(parentNode: Node, beforeNode: Node, startMarker: Node, endMarker: Node) =
@@ -426,6 +487,56 @@ when defined(js):
 
       discard jsRemoveChild(parent, n)
       n = nxt
+
+
+  proc patchEntryWithFresh*(res: var KeyRenderResult, startMarker, endMarker: Node, prevBindings: seq[KeyEventBinding] = @[]) =
+    if res.root.isNil:
+      return
+
+    let parentNode = jsGetNodeProp(startMarker, cstring("parentNode"))
+    if parentNode.isNil:
+      return
+
+    let oldData = collectBetweenWithPaths(startMarker, endMarker)
+    let newData = collectNodesWithPaths(res.root)
+
+    var oldMap = initTable[string, Node]()
+    for idx in 0 ..< oldData.nodes.len:
+      oldMap[pathKey(oldData.paths[idx])] = oldData.nodes[idx]
+
+    for idx in 0 ..< newData.nodes.len:
+      let path = newData.paths[idx]
+      let key = pathKey(path)
+      let newNode = newData.nodes[idx]
+      if oldMap.hasKey(key):
+        let existing = oldMap[key]
+        let ot = nodeType(existing)
+        let nt = nodeType(newNode)
+        if ot == nt:
+          if ot == 3 and nt == 3:
+            let nv = textContentOf(newNode)
+            if nv != textContentOf(existing):
+              setTextContent(existing, nv)
+          elif ot == 1 and nt == 1:
+            patchBasicElementProps(existing, newNode)
+          else:
+            removeDomNode(existing)
+            insertNodeAtPath(parentNode, startMarker, endMarker, path, newNode)
+        else:
+          removeDomNode(existing)
+          insertNodeAtPath(parentNode, startMarker, endMarker, path, newNode)
+        oldMap.del(key)
+      else:
+        insertNodeAtPath(parentNode, startMarker, endMarker, path, newNode)
+
+    for node in oldMap.values:
+      removeDomNode(node)
+
+    let updated = collectBetweenWithPaths(startMarker, endMarker)
+    applyEventBindings(res, startMarker, endMarker, updated.nodes, prevBindings)
+    res.nodes = updated.nodes
+    res.nodePaths = updated.paths
+    cleanupSubtree(res.root)
 
 
   proc toIndexSeq*[T](xs: seq[T]): seq[(int, T)] =

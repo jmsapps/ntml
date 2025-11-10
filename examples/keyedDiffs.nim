@@ -182,9 +182,10 @@ when isMainModule and defined(js):
       font-weight: 600;
       color: #0f172a;
       background: #fff;
-      cursor: pointer;
       transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
       box-shadow: 0 5px 12px rgba(15, 23, 42, 0.05);
+
+      cursor: var(--cursor, pointer)
     """
 
   styled ItemDangerButton = ItemButton:
@@ -569,9 +570,9 @@ when isMainModule and defined(js):
                       "Show Detail"
                 if shape.expanded:
                   ItemButtons:
-                    ItemButton:
+                    ItemButton(styleVars = styleVars("--cursor" = "default")):
                       "Meta slot 1"
-                    ItemButton:
+                    ItemButton(styleVars = styleVars("--cursor" = "default")):
                       "Meta slot 2"
 
         PanelSection:
@@ -579,11 +580,11 @@ when isMainModule and defined(js):
           PanelNote:
             "Checked/unchecked states are patched in place; toggling boxes shouldn't affect siblings."
           KeyedList:
-            for i, todo in tasks:
+            for todo in tasks:
               KeyedItem(key=todo.id):
                 CheckboxRow:
                   CheckboxInput(
-                    id=i,
+                    id=todo.id,
                     `type`="checkbox",
                     checked=todo.done,
                     onChange = proc (e: Event) = toggleTask(todo.id)
@@ -591,7 +592,11 @@ when isMainModule and defined(js):
                   CheckboxLabel(
                     onClick = proc (e: Event) = toggleTask(todo.id)
                   ):
-                    (if todo.done: "✅ " else: "") & todo.label
+                    if todo.done:
+                      "✅ "
+                    else:
+                      ""
+                    todo.label
 
         PanelSection:
           PanelTitle: "Effect cleanup during keyed moves"
