@@ -460,6 +460,17 @@ when defined(js):
       node = next
 
     discard jsInsertBefore(parentNode, frag, beforeNode)
+    when defined(debug):
+      if beforeNode.isNil:
+        echo "[keyed] move range to end"
+      else:
+        let nodeType = jsGetIntProp(beforeNode, cstring("nodeType"))
+        if nodeType == 1:
+          echo "[keyed] move range before element:", $jsGetStringProp(beforeNode, cstring("outerHTML"))
+        elif nodeType == 3:
+          echo "[keyed] move range before text node"
+        else:
+          echo "[keyed] move range before nodeType=", $nodeType
 
 
   proc toNode*(n: Node): Node = n
@@ -928,6 +939,8 @@ when defined(js):
           discard jsInsertBefore(parentNode, endMarker, beforeNode)
 
           cursor = endMarker
+          when defined(debug):
+            echo "[keyed] insert key=", keyStr
           entries[keyStr] = KeyEntry[T](
             startMarker: startMarker,
             endMarker: endMarker,
@@ -950,6 +963,8 @@ when defined(js):
         discard jsRemoveChild(entryParent, entry.startMarker)
         cleanupSubtree(entry.endMarker)
         discard jsRemoveChild(entryParent, entry.endMarker)
+        when defined(debug):
+          echo "[keyed] remove key"
 
     rerender(items.get())
     let unsub = items.sub(proc (xs: seq[T]) = rerender(xs))
