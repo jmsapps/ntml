@@ -80,8 +80,10 @@ nim js --out:index.js examples/helloWorld.nim
 - **Hello World** (`examples/helloWorld.nim`): smallest possible component render, useful for sanity-checking your toolchain.
 - **Todos** (`examples/todos.nim`): reactive list management with `mountChildFor`, derived filters, two-way `<input>` bindings, and dynamic styling.
 - **Forms** (`examples/forms.nim`): showcases nested signals, validation hints, and `bindValue`/`bindChecked` helpers.
-- **Routing** (`examples/navigation.nim`): leverages `navigate()` and route signals to orchestrate multipage flows.
+- **Routing** (`examples/router.nim`): leverages `navigate()` and route signals to orchestrate multipage flows.
 - **Styling** (`examples/styled.nim`): demonstrates the `styled` macro, scoped CSS hashing, and reactive `styleVars`.
+- **Keyed Diffs** (`examples/keyedDiffs.nim`): showcases keyed list rendering, highlighting when entries patch versus remount.
+- **Effects** (`examples/effect.nim`): the `effect` explores the effect API, including cleanup, auto-runners, and delayed updates.
 
 ## Project Status
 
