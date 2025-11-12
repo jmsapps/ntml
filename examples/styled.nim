@@ -25,21 +25,44 @@ when isMainModule and defined(js):
     )
   ]
 
+  theme LightTheme:
+    surface = "linear-gradient(135deg, #f8fafc, #e0f2fe)"
+    panelBg = "rgba(255, 255, 255, 0.85)"
+    `--panelBorder` = "rgba(148, 163, 184, 0.35)"
+    `-textColor` = "#0f172a"
+    copyColor = "#334155"
+    cardBg = "#ffffff"
+    cardText = "#0f172a"
+    buttonText = "#0f172a"
+
+  theme DarkTheme:
+    surface = "linear-gradient(135deg, #0f172a, #1e1b4b)"
+    panelBg = "rgba(15, 23, 42, 0.65)"
+    panelBorder = "rgba(148, 163, 184, 0.15)"
+    textColor = "#e2e8f0"
+    copyColor = "#cbd5f5"
+    cardBg = "#0f172a"
+    cardText = "#e2e8f0"
+    buttonText = "#ffffff"
+
+  setStyledTheme(DarkTheme)
+
   let accentPalette = @["#6c63ff", "#00b894", "#f39c12", "#ff6584"]
   let paletteIndex = signal(0)
   let accentSignal = derived(paletteIndex, proc(i: int): string = accentPalette[i mod accentPalette.len])
   let paritySignal = signal(true)
+  let isDarkTheme = signal(true)
 
   styled Container = d:
     """
       min-height: 100vh;
       margin: 0;
-      background: linear-gradient(135deg, #0f172a, #1e1b4b);
+      background: var(--surface);
       display: flex;
       align-items: center;
       justify-content: center;
       font-family: Inter, 'Helvetica Neue', sans-serif;
-      color: #e2e8f0;
+      color: var(--textColor);
       padding: 3rem 1rem;
     """
 
@@ -50,11 +73,11 @@ when isMainModule and defined(js):
 
   styled HeroPanel = section:
     """
-      background: rgba(15, 23, 42, 0.65);
+      background: var(--panelBg);
       border-radius: 32px;
       padding: 2.5rem;
       backdrop-filter: blur(14px);
-      border: 1px solid rgba(148, 163, 184, 0.15);
+      border: 1px solid var(--panelBorder);
       box-shadow: 0 25px 70px rgba(8, 12, 30, 0.55);
     """
 
@@ -62,13 +85,13 @@ when isMainModule and defined(js):
     """
       font-size: clamp(2.4rem, 4vw, 3.4rem);
       margin: 0 0 1rem;
-      color: #e2e8f0;
+      color: var(--textColor);
     """
 
   styled HeroCopy = p:
     """
       max-width: 640px;
-      color: #cbd5f5;
+      color: var(--copyColor);
       line-height: 1.8;
       margin-bottom: 12px;
     """
@@ -82,7 +105,7 @@ when isMainModule and defined(js):
       cursor: pointer;
       transition: opacity .2s;
       box-shadow: 0 10px 25px rgba(0,0,0,0.12);
-      color: white;
+      color: var(--buttonText);
       background: var(--hero-bg, #6c63ff);
     """
 
@@ -95,8 +118,8 @@ when isMainModule and defined(js):
 
   styled FeatureCard = d:
     """
-      background: white;
-      color: #0f172a;
+      background: var(--cardBg);
+      color: var(--cardText);
       border-radius: 20px;
       padding: 1.5rem;
       box-shadow: 0 20px 35px rgba(15, 23, 42, 0.15);
@@ -107,19 +130,19 @@ when isMainModule and defined(js):
     """
       margin: 0 0 0.75rem;
       font-size: 1.25rem;
-      color: inherit;
+      color: var(--cardText);
     """
 
   styled FeatureText = p:
     """
       margin: 0;
-      color: #334155;
+      color: var(--copyColor);
       line-height: 1.6;
     """
 
   styled ParityBanner = d:
     """
-      color: #fff;
+      color: var(--textColor);
       border-radius: 12px;
       font-weight: 600;
       text-align: center;
@@ -135,12 +158,24 @@ when isMainModule and defined(js):
             "Every element accepts a `css` attribute. NTML hashes the block, injects a scoped class, " &
             "and keeps your handwritten class names intact."
 
-          HeroButton(
-            styleVars = styleVars("--hero-bg" = accentSignal),
-            onClick = proc (e: Event) =
-              paletteIndex.set((paletteIndex.get() + 1) mod accentPalette.len)
-          ):
-            "Cycle Accent Color"
+        HeroButton(
+          styleVars = styleVars("--hero-bg" = accentSignal),
+          onClick = proc (e: Event) =
+            paletteIndex.set((paletteIndex.get() + 1) mod accentPalette.len)
+        ):
+          "Cycle Accent Color"
+
+        HeroButton(
+          styleVars = styleVars("--hero-bg" = accentSignal),
+          onClick = proc (e: Event) =
+            let next = not isDarkTheme.get()
+            isDarkTheme.set(next)
+            if next:
+              setStyledTheme(DarkTheme)
+            else:
+              setStyledTheme(LightTheme)
+        ):
+          if isDarkTheme: "Use Light Theme" else: "Use Dark Theme"
 
         FeatureGrid:
           for feat in features:
@@ -171,7 +206,6 @@ when isMainModule and defined(js):
           :root {
             background: linear-gradient(135deg, #0f172a, #1e1b4b);
           }
-
           .scoped_class {
             display: flex;
             flex-direction: column;

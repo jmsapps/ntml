@@ -10,10 +10,12 @@ when defined(js):
     signals,
     types
 
-
   var
     styleNode: Node
     styleEntries: Table[string, StyleEntry] = initTable[string, StyleEntry]()
+    themeStyleNode: Node
+    activeThemeSignal: Signal[StyledTheme] = nil
+    registeredThemeVars: seq[string] = @[]
 
 
   proc jsInsertCssRule(el: Node; rule: cstring; index: int): int {.importjs: """
@@ -213,6 +215,118 @@ when defined(js):
         setLiteral(entry.literal)
 
 
+  proc normalizeCssVarName(raw: string): string =
+    var trimmed = raw.strip()
+
+    if trimmed.len == 0:
+      return ""
+
+    if trimmed.startsWith("---"):
+      raise newException(ValueError, "CSS variables cannot start with more than two leading hyphens: " & trimmed)
+
+    if trimmed.startsWith("--"):
+      return trimmed
+
+    if trimmed.startsWith("-"):
+      return "-" & trimmed
+
+    "--" & trimmed
+
+
+  proc ensureThemeSignal(): Signal[StyledTheme] =
+    if activeThemeSignal == nil:
+      activeThemeSignal = signal[StyledTheme](nil)
+
+    activeThemeSignal
+
+
+  proc ensureThemeStyleNode(): Node =
+    if themeStyleNode == nil:
+      themeStyleNode = jsCreateElement(cstring("style"))
+      jsSetAttribute(themeStyleNode, cstring("data-styled-theme"), cstring("ntml"))
+      discard jsAppendChild(document.head, themeStyleNode)
+
+    themeStyleNode
+
+
+  proc renderThemeCss(theme: StyledTheme): string =
+    if registeredThemeVars.len == 0:
+      return ""
+
+    result.add(":root{")
+
+    for name in registeredThemeVars:
+      var value = "unset"
+
+      if theme != nil and name in theme.vars:
+        value = theme.vars[name]
+      result.add(name)
+      result.add(":")
+      result.add(value)
+      result.add(";")
+
+    result.add("}")
+
+
+  proc rewriteThemeStyles(theme: StyledTheme) =
+    if registeredThemeVars.len == 0:
+      if themeStyleNode != nil:
+        jsSetProp(themeStyleNode, cstring("textContent"), cstring(""))
+      return
+
+    let css = renderThemeCss(theme)
+    let node = ensureThemeStyleNode()
+    jsSetProp(node, cstring("textContent"), cstring(css))
+
+
+  proc newStyledTheme*(name: string; vars: openArray[(string, string)]): StyledTheme =
+    new(result)
+    result.name = name
+    result.vars = initTable[string, string]()
+
+    for entry in vars:
+      let normalized = normalizeCssVarName(entry[0])
+      if normalized.len == 0:
+        continue
+      result.vars[normalized] = entry[1]
+
+
+  proc styledThemeSignal*(): Signal[StyledTheme] =
+    ensureThemeSignal()
+
+
+  proc activeTheme*(): StyledTheme =
+    if activeThemeSignal == nil:
+      return nil
+
+    activeThemeSignal.get()
+
+
+  proc setStyledTheme*(theme: StyledTheme) =
+    ensureThemeSignal().set(theme)
+    rewriteThemeStyles(theme)
+
+
+  proc clearStyledTheme*() =
+    setStyledTheme(nil)
+
+
+  proc registerThemeVars*(names: openArray[string]) =
+    var changed = false
+
+    for raw in names:
+      let normalized = normalizeCssVarName(raw)
+      if normalized.len == 0:
+        continue
+
+      if normalized notin registeredThemeVars:
+        registeredThemeVars.add(normalized)
+        changed = true
+
+    if changed:
+      rewriteThemeStyles(activeTheme())
+
+
   proc releaseStyledFromNode(el: Node) =
     if el == nil:
       return
@@ -257,3 +371,56 @@ when defined(js):
 
     else:
       error("styled expects `styled Name = Base: css` or `styled(Name, Base): css`", args[0])
+
+
+  macro theme*(head, body: untyped): untyped =
+    if head.kind notin {nnkIdent, nnkAccQuoted}:
+      error("theme name must be an identifier", head)
+
+    proc headNameStr(node: NimNode): string {.compileTime.} =
+      case node.kind
+      of nnkAccQuoted:
+        $node[0]
+      else:
+        $node
+
+    let themeNameStr = headNameStr(head)
+    let exportedName = postfix(head, "*")
+    let registerSym = bindSym"registerThemeVars"
+    let ctorSym = bindSym"newStyledTheme"
+
+    var namesBracket = newNimNode(nnkBracket)
+    var entriesBracket = newNimNode(nnkBracket)
+    var entryCount = 0
+
+    proc normalizeKey(node: NimNode): string {.compileTime.} =
+      case node.kind
+      of nnkIdent, nnkAccQuoted:
+        $node
+      of nnkStrLit .. nnkTripleStrLit:
+        node.strVal
+      else:
+        error("theme keys must be identifiers or string literals", node)
+
+    for stmt in body:
+      if stmt.kind notin {nnkExprEqExpr, nnkExprColonExpr, nnkAsgn}:
+        error("theme entries must look like key = value", stmt)
+
+      let rawKey = normalizeKey(stmt[0])
+      if rawKey.len == 0:
+        error("theme entry names cannot be empty", stmt[0])
+
+      namesBracket.add(newLit(rawKey))
+      entriesBracket.add(newTree(nnkTupleConstr, newLit(rawKey), stmt[1]))
+      inc(entryCount)
+
+    if entryCount == 0:
+      error("theme requires at least one entry", body)
+
+    let namesSeq = newTree(nnkPrefix, ident"@", namesBracket)
+    let entriesSeq = newTree(nnkPrefix, ident"@", entriesBracket)
+
+    result = quote do:
+      let `exportedName` = block:
+        `registerSym`(`namesSeq`)
+        `ctorSym`(`themeNameStr`, `entriesSeq`)

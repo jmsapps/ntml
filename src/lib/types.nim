@@ -20,6 +20,10 @@ when defined(js):
 
     NodeDisposer* = proc (el: Node)
 
+    StyledTheme* = ref object
+      name*: string
+      vars*: Table[string, string]
+
     StyleEntry* = object
       css*: string
       ruleIndex*: int
