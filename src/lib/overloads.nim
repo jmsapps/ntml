@@ -2,8 +2,9 @@ when defined(js):
   {.experimental: "dotOperators".}
   {.experimental: "callOperator".}
 
-  import signals
+  import strutils
 
+  import signals
   import types
 
 
@@ -108,6 +109,78 @@ when defined(js):
 
   proc `or`*(a: Signal[bool], b: bool): Signal[bool] =
     derived(a, proc(x: bool): bool = x or b)
+
+
+  proc `contains`*[string](a, b: Signal[string]): Signal[bool] =
+    combine2(a, b, proc(x, y: string): bool = contains(x, y))
+
+
+  proc `contains`*[string](a: string, b: Signal[string]): Signal[bool] =
+    derived(b, proc(y: string): bool = contains(a, y))
+
+
+  proc `contains`*[string](a: Signal[string], b: string): Signal[bool] =
+    derived(a, proc(x: string): bool = contains(x, b))
+
+
+  proc `contains`*(a: string, b: Signal[char]): Signal[bool] =
+    derived(b, proc(y: char): bool = contains(a, y))
+
+
+  proc `contains`*(a: Signal[string], b: char): Signal[bool] =
+    derived(a, proc(x: string): bool = contains(x, b))
+
+
+  proc `contains`*(a: Signal[string], b: Signal[char]): Signal[bool] =
+    combine2(a, b, proc(x: string, y: char): bool = contains(x, y))
+
+
+  proc `contains`*[T](a: Signal[set[T]], b: T): Signal[bool] =
+    derived(a, proc(x: set[T]): bool = contains(x, b))
+
+
+  proc `contains`*[T](a: set[T], b: Signal[T]): Signal[bool] =
+    derived(b, proc(y: T): bool = contains(a, y))
+
+
+  proc `contains`*[T](a: Signal[set[T]], b: Signal[T]): Signal[bool] =
+    combine2(a, b, proc(x: set[T], y: T): bool = contains(x, y))
+
+
+  proc `contains`*[T](a: Signal[seq[T]], b: T): Signal[bool] =
+    derived(a, proc(x: seq[T]): bool = contains(x, b))
+
+
+  proc `contains`*[T](a: seq[T], b: Signal[T]): Signal[bool] =
+    derived(b, proc(y: T): bool = contains(a, y))
+
+
+  proc `contains`*[T](a: Signal[seq[T]], b: Signal[T]): Signal[bool] =
+    combine2(a, b, proc(x: seq[T], y: T): bool = contains(x, y))
+
+
+  proc `contains`*[N: static[int], T](a: Signal[array[N, T]], b: T): Signal[bool] =
+    derived(a, proc(x: array[N, T]): bool = contains(x, b))
+
+
+  proc `contains`*[N: static[int], T](a: array[N, T], b: Signal[T]): Signal[bool] =
+    derived(b, proc(y: T): bool = contains(a, y))
+
+
+  proc `contains`*[N: static[int], T](a: Signal[array[N, T]], b: Signal[T]): Signal[bool] =
+    combine2(a, b, proc(x: array[N, T], y: T): bool = contains(x, y))
+
+
+  proc `contains`*[U, V, W](a: Signal[HSlice[U, V]], b: W): Signal[bool] =
+    derived(a, proc(x: HSlice[U, V]): bool = contains(x, b))
+
+
+  proc `contains`*[U, V, W](a: HSlice[U, V], b: Signal[W]): Signal[bool] =
+    derived(b, proc(y: W): bool = contains(a, y))
+
+
+  proc `contains`*[U, V, W](a: Signal[HSlice[U, V]], b: Signal[W]): Signal[bool] =
+    combine2(a, b, proc(x: HSlice[U, V], y: W): bool = contains(x, y))
 
 
   proc `not`*(a: Signal[bool]): Signal[bool] =

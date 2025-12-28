@@ -84,6 +84,7 @@ nim js --out:index.js examples/helloWorld.nim
 - **Styling** (`examples/styled.nim`): demonstrates the `styled` macro, scoped CSS hashing, and reactive `styleVars`.
 - **Keyed Diffs** (`examples/keyedDiffs.nim`): showcases keyed list rendering, highlighting when entries patch versus remount.
 - **Effects** (`examples/effect.nim`): the `effect` explores the effect API, including cleanup, auto-runners, and delayed updates.
+- **Overloads** (`examples/overloads.nim`): comprehensive showcase of signal operator overloads in one live dashboard.
 
 ## Project Status
 
