@@ -1,6 +1,6 @@
 version       = "0.5.2"
 author        = "jmsapps"
-license       = "GNU General Public License v2.0"
+license       = "MIT"
 description   = "A reactive, client-side single-page application (SPA) renderer written in Nim."
 packageName   = "ntml"
 srcDir        = "src"
