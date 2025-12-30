@@ -133,7 +133,7 @@ when isMainModule and defined(js):
           PanelNote: "Demonstrates effect cleanup by toggling an auto increment loop."
           ControlRow:
             NeutralButton(`type`="button", onClick = proc (e: Event) = autoStart.set(not autoStart.get())):
-              if autoStart.get():
+              if autoStart:
                 "Stop auto"
               else:
                 "Start auto"

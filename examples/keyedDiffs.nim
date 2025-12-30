@@ -630,8 +630,8 @@ when isMainModule and defined(js):
             ):
               "Shift Accent Color"
             NeutralButton(`type`="button", onClick = proc (e: Event) = toggleAccent()):
-              (if showAccentCards.get(): "Unmount Accent Cards" else: "Mount Accent Cards")
-          if showAccentCards.get():
+              (if showAccentCards: "Unmount Accent Cards" else: "Mount Accent Cards")
+          if showAccentCards:
             KeyedList:
               for shelf in shelves:
                 AccentCard(

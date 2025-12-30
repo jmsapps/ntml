@@ -53,6 +53,38 @@ when defined(js):
     normalizePath(res)
 
 
+  proc stripQueryHash*(path: string): string =
+    var res = path
+    let q = res.find('?')
+    let h = res.find('#')
+    let cut = if q >= 0 and h >= 0: min(q, h) elif q >= 0: q elif h >= 0: h else: -1
+    if cut >= 0:
+      res = res[0 ..< cut]
+    res
+
+
+  proc extractSearch*(path: string): string =
+    let q = path.find('?')
+    if q < 0:
+      return ""
+    let h = path.find('#')
+    if h >= 0 and h > q:
+      return path[q ..< h]
+    path[q ..^ 1]
+
+
+  proc extractHash*(path: string): string =
+    let h = path.find('#')
+    if h < 0:
+      return ""
+    path[h ..^ 1]
+
+
+  proc normalizeRoutePath(path: string): string =
+    let base = stripQueryHash(path)
+    normalizePath(base)
+
+
   proc registerRouteListeners() =
     if listenersRegistered:
       return
@@ -76,7 +108,13 @@ when defined(js):
 
 
   proc router*(): Router =
-    Router(location: ensureRouteSignal())
+    let loc = ensureRouteSignal()
+    Router(
+      location: loc,
+      path: derived(loc, proc (p: string): string = normalizeRoutePath(p)),
+      search: derived(loc, proc (p: string): string = extractSearch(p)),
+      hash: derived(loc, proc (p: string): string = extractHash(p))
+    )
 
 
   proc navigate*(path: string, replace = false) =
@@ -175,7 +213,12 @@ when defined(js):
 
     walk(body, "")
 
-    var caseStmt = newTree(nnkCaseStmt, location)
+    let locationExpr = quote do:
+      (when compiles(`location`.signalValue):
+        derived(`location`, proc (p: string): string = stripQueryHash(p))
+      else:
+        stripQueryHash(`location`))
+    var caseStmt = newTree(nnkCaseStmt, locationExpr)
 
     for b in branches:
       caseStmt.add(b)

@@ -17,6 +17,9 @@ when defined(js):
 
     Router* = object
       location*: Signal[string]
+      path*: Signal[string]
+      search*: Signal[string]
+      hash*: Signal[string]
 
     NodeDisposer* = proc (el: Node)
 
