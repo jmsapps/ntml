@@ -1,14 +1,17 @@
 when defined(js):
   import macros
+  import tables
   from dom import window, Event
   from strutils import startsWith, endsWith, strip, split, join
 
   import
+    mount,
     signals,
     shims,
     types
 
   var routeSignal: Signal[string]
+  var paramsSignal: Signal[Table[string, string]]
   var listenersRegistered = false
   var routeListener: proc (e: Event)
 
@@ -107,6 +110,20 @@ when defined(js):
     routeSignal
 
 
+  proc ensureParamsSignal*(): Signal[Table[string, string]] =
+    if paramsSignal == nil:
+      paramsSignal = signal(initTable[string, string]())
+    paramsSignal
+
+
+  proc routeParams*(): Signal[Table[string, string]] =
+    ensureParamsSignal()
+
+
+  proc setRouteParams*(params: Table[string, string]) =
+    ensureParamsSignal().set(params)
+
+
   proc router*(): Router =
     let loc = ensureRouteSignal()
     Router(
@@ -115,6 +132,35 @@ when defined(js):
       search: derived(loc, proc (p: string): string = extractSearch(p)),
       hash: derived(loc, proc (p: string): string = extractHash(p))
     )
+
+
+  proc matchRoute*(pattern, path: string; params: var Table[string, string]): bool =
+    if pattern == "*":
+      return true
+
+    let normPattern = normalizeRoutePath(pattern)
+    let normPath = normalizeRoutePath(path)
+    let patParts = normPattern.strip(chars={'/'}).split("/")
+    let pathParts = normPath.strip(chars={'/'}).split("/")
+
+    var i = 0
+    var j = 0
+    while i < patParts.len:
+      let part = patParts[i]
+      if part == "*":
+        return true
+      if j >= pathParts.len:
+        return false
+      if part.len > 0 and part[0] == ':':
+        let key = part[1..^1]
+        if key.len > 0:
+          params[key] = pathParts[j]
+      elif part != pathParts[j]:
+        return false
+      inc i
+      inc j
+
+    j == pathParts.len
 
 
   proc navigate*(path: string, replace = false) =
@@ -213,21 +259,68 @@ when defined(js):
 
     walk(body, "")
 
-    let locationExpr = quote do:
-      (when compiles(`location`.signalValue):
-        derived(`location`, proc (p: string): string = stripQueryHash(p))
-      else:
-        stripQueryHash(`location`))
-    var caseStmt = newTree(nnkCaseStmt, locationExpr)
+    let renderSym = genSym(nskProc, "renderRoute")
+    let pathSym = genSym(nskParam, "path")
+    let paramsSym = genSym(nskVar, "params")
+
+    let initTableSym = bindSym"initTable"
+    let initTableCall = newCall(newTree(nnkBracketExpr, initTableSym, ident"string", ident"string"))
+    var routeBody = newStmtList(
+      newVarStmt(paramsSym, initTableCall),
+      newCall(ident"setRouteParams", paramsSym)
+    )
 
     for b in branches:
-      caseStmt.add(b)
+      let pattern = b[0]
+      let compExpr = b[1]
+      let compCall =
+        if compExpr.kind in {nnkIdent, nnkAccQuoted, nnkSym}:
+          newCall(compExpr)
+        else:
+          compExpr
+      routeBody.add(quote do:
+        `paramsSym`.clear()
+        if matchRoute(`pattern`, `pathSym`, `paramsSym`):
+          setRouteParams(`paramsSym`)
+          return `compCall`
+      )
 
-    caseStmt.add(newTree(
-      nnkElse,
-      (if elseBody.isNil: newTree(nnkDiscardStmt, newEmptyNode()) else: elseBody)
-    ))
+    if not elseBody.isNil:
+      let elseExpr =
+        if elseBody.kind in {nnkIdent, nnkAccQuoted, nnkSym}:
+          newCall(elseBody)
+        else:
+          elseBody
+      routeBody.add(quote do:
+        `paramsSym`.clear()
+        setRouteParams(`paramsSym`)
+        return `elseExpr`
+      )
+    else:
+      routeBody.add(quote do:
+        `paramsSym`.clear()
+        setRouteParams(`paramsSym`)
+        return jsCreateFragment()
+      )
+
+    let renderProc = newProc(
+      name = renderSym,
+      params = @[ident"Node", newIdentDefs(pathSym, ident"string")],
+      body = routeBody
+    )
+
+    let pathExpr = quote do:
+      normalizeRoutePath(
+        (when compiles(`location`.signalValue): `location`.get() else: `location`)
+      )
 
     result = quote do:
-      fragment:
-        `caseStmt`
+      block:
+        `renderProc`
+        when compiles(`location`.signalValue):
+          block:
+            let frag = jsCreateFragment()
+            mountChild(frag, derived(`location`, proc (p: string): Node = `renderSym`(normalizeRoutePath(p))))
+            frag
+        else:
+          `renderSym`(`pathExpr`)
