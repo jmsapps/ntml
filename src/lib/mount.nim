@@ -660,7 +660,7 @@ when defined(js):
 
     render(s.get())
 
-    let unsub = s.sub(proc(v: T) = render(v))
+    let unsub = s.sub(proc(v: T) = render(v), false)
 
     registerCleanup(startN, unsub)
 

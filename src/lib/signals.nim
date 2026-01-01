@@ -108,9 +108,10 @@ when defined(js):
         f(newValue)
 
 
-  proc sub*[T](src: Signal[T], fn: Subscriber[T]): Unsub =
+  proc sub*[T](src: Signal[T], fn: Subscriber[T], fire = true): Unsub =
     src.signalSubs.add(fn)
-    fn(src.signalValue)
+    if fire:
+      fn(src.signalValue)
 
     result = proc() =
       var i: int = -1
