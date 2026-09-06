@@ -77,7 +77,7 @@
 
 ---
 
-## Version 1.0.0 — Production Ready
+## Version 0.8.0 — Production Readiness
 
 ### ⬜️ Fine-Grained Reactivity
 
@@ -118,10 +118,16 @@
 
 ---
 
-## Version 2.0.0 — Performance enhancements
+## Version 0.9.0 — Performance enhancements
 
 ### ⬜️ Full Keyed Patch Helpers
 
 - Extend keyed lowering to capture node refs, attributes, and handlers per entry.
 - Emit patch helpers so updates re-apply expressions without rebuilding nodes.
 - Rebind event listeners/cleanups when keyed values change to avoid stale closures.
+
+---
+
+## Version 1.0.0 — Production Ready
+
+- 1.0.0 is defined by having real users and real product feedback.

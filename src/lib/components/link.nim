@@ -15,7 +15,6 @@ when defined(js):
   proc jsEventBoolProp(e: Event, k: cstring): bool {.importjs: "Boolean(#[#])".}
   proc jsEventIntProp(e: Event, k: cstring): int {.importjs: "Number(#[#])".}
   proc jsEventCurrentTarget(e: Event): Node {.importjs: "#.currentTarget".}
-  proc jsPreventDefault(e: Event) {.importjs: "#.preventDefault()".}
   proc jsGetAttr(el: Node, k: cstring): cstring {.importjs: "(#.getAttribute(#) || '')".}
 
   proc isExternalHref(href: string): bool =
