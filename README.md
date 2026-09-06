@@ -85,6 +85,34 @@ nim js --out:index.js examples/helloWorld.nim
 - **Keyed Diffs** (`examples/keyedDiffs.nim`): showcases keyed list rendering, highlighting when entries patch versus remount.
 - **Effects** (`examples/effect.nim`): the `effect` explores the effect API, including cleanup, auto-runners, and delayed updates.
 - **Overloads** (`examples/overloads.nim`): comprehensive showcase of signal operator overloads in one live dashboard.
+- **Treeview a11y** (`examples/treeview.nim`): nested `role="tree"`/`treeitem`/`group` structure with recursive rendering, `aria-expanded` bound through a derived string, and arrow-key expand/collapse.
+- **Focus & Keyboard** (`examples/focusKeyboard.nim`): roving focus across a control row with arrow keys, programmatic focus after mount, and a signal-driven focus indicator.
+
+## Testing
+
+The suite runs headless and covers three tiers: the reactive core and router as pure logic,
+a smoke sweep proving every example still renders, and behavioural tests that drive each
+example in `examples/` through a real DOM and assert what it demonstrates.
+
+```bash
+nimble test        # or: ./tests/run.sh
+```
+
+Behavioural tests run in a **real headless browser** driven by Playwright: genuine clicks,
+typing, keyboard input and URL assertions, against the actual `nim js` bundle each example
+compiles to. The first run installs Playwright into `tests/node_modules` and downloads a
+browser (test dependencies only — the published package has no dependencies).
+
+The default engine is Chromium; `NTML_BROWSER=chromium|firefox|webkit` selects another.
+All three are verified green.
+
+Compilation is a hard gate: if any example or test module fails to compile, the run stops
+before executing anything rather than testing stale build output. Build artifacts are
+written outside the repository (override with `NTML_TEST_OUT`).
+
+Examples are loaded unmodified, so the tests exercise exactly the files you run in a
+browser. Adding a new example to `examples/` automatically brings it into the smoke sweep —
+the list is discovered from the filesystem, not hard-coded.
 
 ## Project Status
 

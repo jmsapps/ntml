@@ -588,6 +588,10 @@ when defined(js):
     let onInput = proc (e: Event) = s.set($jsGetProp(el, cstring("value")))
     jsAddEventListener(el, cstring("input"), onInput)
     jsAddEventListener(el, cstring("change"), onInput)
+    registerCleanup(el, proc () =
+      jsRemoveEventListener(el, cstring("input"), onInput)
+      jsRemoveEventListener(el, cstring("change"), onInput)
+    )
 
 
   proc bindValue*(el: Node, s: Signal[cstring]) =
@@ -597,6 +601,10 @@ when defined(js):
     let onInput = proc (e: Event) = s.set(jsGetProp(el, cstring("value")))
     jsAddEventListener(el, cstring("input"), onInput)
     jsAddEventListener(el, cstring("change"), onInput)
+    registerCleanup(el, proc () =
+      jsRemoveEventListener(el, cstring("input"), onInput)
+      jsRemoveEventListener(el, cstring("change"), onInput)
+    )
 
 
   proc bindChecked*(el: Node, v: bool) = setBooleanAttr(el, "checked", v)
@@ -605,8 +613,12 @@ when defined(js):
     setBooleanAttr(el, "checked", s.get())
     let u = s.sub(proc(x: bool) = jsSetProp(el, cstring("checked"), x))
     registerCleanup(el, u)
-    jsAddEventListener(el, cstring("change"), proc (e: Event) =
-      s.set(jsGetBoolProp(el, cstring("checked")))
+    # Hoisted to a named local: jsRemoveEventListener only detaches a handler when handed
+    # the same proc reference that was attached, so an inline closure is unremovable.
+    let onChange = proc (e: Event) = s.set(jsGetBoolProp(el, cstring("checked")))
+    jsAddEventListener(el, cstring("change"), onChange)
+    registerCleanup(el, proc () =
+      jsRemoveEventListener(el, cstring("change"), onChange)
     )
 
 

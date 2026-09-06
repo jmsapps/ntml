@@ -45,3 +45,17 @@ when defined(js):
   proc jsHistoryPushState*(url: string) {.importjs: "window.history.pushState(null, '', toJSStr(#))".}
   proc jsHistoryReplaceState*(url: string) {.importjs: "window.history.replaceState(null, '', toJSStr(#))".}
   proc jsLocationAssign*(url: string) {.importjs: "window.location.assign(toJSStr(#))".}
+
+  # Query
+  proc jsQuerySelector*(sel: cstring): Node {.importjs: "document.querySelector(#)".}
+  proc jsGetElementById*(id: cstring): Node {.importjs: "document.getElementById(#)".}
+
+  # Events
+  proc jsEventKey*(e: Event): string {.importjs: "cstrToNimstr(#.key || '')".}
+  proc jsPreventDefault*(e: Event) {.importjs: "#.preventDefault()".}
+  proc jsStopPropagation*(e: Event) {.importjs: "#.stopPropagation()".}
+
+  # Focus
+  proc jsFocus*(el: Node) {.importjs: "#.focus()".}
+  proc jsBlur*(el: Node) {.importjs: "#.blur()".}
+  proc jsActiveElement*(): Node {.importjs: "(document.activeElement)".}
