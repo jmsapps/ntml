@@ -78,6 +78,42 @@ suite "schema accepts every attribute in use":
       check isAllowedAttr(tag, "data-anything")
       check isAllowedAttr(tag, "aria-anything")
 
+  test "camelCase aria spellings resolve to hyphenated names":
+    check normalizeAttrName("ariaLabel") == "aria-label"
+    check normalizeAttrName("ariaExpanded") == "aria-expanded"
+    check normalizeAttrName("ariaDescribedby") == "aria-describedby"
+    check isAllowedAttr("div", "ariaLabel")
+    check isAllowedAttr("button", "ariaExpanded")
+
+  test "multi-hump aria names collapse to a single hyphen":
+    check normalizeAttrName("ariaActiveDescendant") == "aria-activedescendant"
+    check normalizeAttrName("ariaLabelledBy") == "aria-labelledby"
+
+  test "camelCase data spellings become kebab-case":
+    check normalizeAttrName("dataN") == "data-n"
+    check normalizeAttrName("dataTone") == "data-tone"
+    check normalizeAttrName("dataRevealDelay") == "data-reveal-delay"
+    check isAllowedAttr("span", "dataRevealDelay")
+
+  test "htmlFor resolves to for":
+    check normalizeAttrName("htmlFor") == "for"
+    check isAllowedAttr("label", "htmlFor")
+    check not isAllowedAttr("div", "htmlFor")
+
+  test "ordinary camelCase attributes are only lowercased, never hyphenated":
+    check normalizeAttrName("maxLength") == "maxlength"
+    check normalizeAttrName("tabIndex") == "tabindex"
+    check normalizeAttrName("readOnly") == "readonly"
+    check normalizeAttrName("contentEditable") == "contenteditable"
+
+  test "hyphenated spellings still resolve unchanged":
+    check normalizeAttrName("aria-label") == "aria-label"
+    check normalizeAttrName("data-reveal-delay") == "data-reveal-delay"
+
+  test "a camelCase name without a hump is not split":
+    check normalizeAttrName("arialabel") == "arialabel"
+    check not isAllowedAttr("div", "arialabel")
+
   test "event names are matched case-insensitively":
     check isAllowedAttr("form", "onSubmit")
     check isAllowedAttr("form", "onsubmit")

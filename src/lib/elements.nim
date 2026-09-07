@@ -93,24 +93,20 @@ macro defineHtmlElement*(tagNameLit: static[string]; args: varargs[untyped]): un
     value: NimNode,
     nameNode: NimNode = nil
   ) {.compileTime.} =
-    var key: string = keyRaw
-
-    if key == "className":
-      key = "class"
-
-    let keyLowered: string = key.toLowerAscii()
+    let key: string = normalizeAttrName(keyRaw)
+    let keyLowered: string = key
     let kLit: NimNode = newLit(key)
 
     if not isAllowedAttr(tagName, key):
       let blame: NimNode = (if nameNode.isNil: value else: nameNode)
       if isKnownAttrAnywhere(key):
         error(
-          "attribute '" & key & "' is not valid on <" & tagName & ">",
+          "attribute '" & keyRaw & "' is not valid on <" & tagName & ">",
           blame
         )
       else:
         error(
-          "unknown attribute '" & key & "' on <" & tagName & ">",
+          "unknown attribute '" & keyRaw & "' on <" & tagName & ">",
           blame
         )
 

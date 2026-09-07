@@ -129,9 +129,40 @@ proc resolveTag*(name: string): string =
       return pair[1]
   name
 
+proc kebabCase(name: string): string =
+  for i, c in name:
+    if c in {'A' .. 'Z'}:
+      if i > 0:
+        result.add('-')
+      result.add(chr(ord(c) + 32))
+
+    else:
+      result.add(c)
+
+proc hasCamelHumpAfter(name, prefix: string): bool =
+  name.len > prefix.len and
+    name.startsWith(prefix) and
+    name[prefix.len] in {'A' .. 'Z'}
+
 proc normalizeAttrName*(name: string): string =
+  if name.len == 0:
+    return ""
+
   let lowered: string = name.toLowerAscii()
-  if lowered == "classname": "class" else: lowered
+
+  if lowered == "classname":
+    return "class"
+
+  if lowered == "htmlfor":
+    return "for"
+
+  if hasCamelHumpAfter(name, "aria"):
+    return "aria-" & name[4 .. ^1].toLowerAscii()
+
+  if hasCamelHumpAfter(name, "data"):
+    return "data-" & kebabCase(name[4 .. ^1])
+
+  lowered
 
 proc hasAttrPrefix*(name: string): bool =
   for prefix in ATTR_PREFIXES:

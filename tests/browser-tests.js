@@ -223,6 +223,30 @@ test('typed elements enforce attributes and still render custom and ARIA values'
     assert(await prefixed.getAttribute('data-kind') === 'demo', 'data-* should pass through');
     assert(await prefixed.getAttribute('aria-label') === 'prefixed span', 'aria-* strings should pass through');
 
+    const camelToggle = page.locator('#camel-toggle');
+    assert(await camelToggle.getAttribute('aria-expanded') === 'false',
+      'ariaExpanded should resolve to the aria-expanded attribute');
+    assert(await camelToggle.getAttribute('ariaexpanded') === null,
+      'the camelCase spelling must not leak through as a literal attribute');
+    await camelToggle.click();
+    assert(await camelToggle.getAttribute('aria-expanded') === 'true',
+      'a camelCase-bound signal should stay reactive');
+    assert(await camelToggle.getAttribute('aria-controls') === 'camel-panel',
+      'ariaControls should resolve to aria-controls');
+
+    assert(await page.locator('#camel-panel').getAttribute('data-reveal-delay') === '200',
+      'dataRevealDelay should resolve to data-reveal-delay');
+    assert(await page.locator('#camel-check').getAttribute('aria-label') === 'written as ariaLabel',
+      'ariaLabel should resolve to aria-label');
+
+    assert(await page.locator('#camel-label').getAttribute('for') === 'camel-check',
+      'htmlFor should resolve to the for attribute');
+    const camelCheck = page.locator('#camel-check');
+    assert(await camelCheck.isChecked() === false, 'checkbox should start unchecked');
+    await page.locator('#camel-label').click();
+    assert(await camelCheck.isChecked() === true,
+      'clicking a label wired by htmlFor should toggle its checkbox');
+
     const field = page.locator('#typed-field');
     assert(await field.getAttribute('type') === 'text', 'typed string attributes should still render');
     assert(await field.getAttribute('required') === null, 'required=false should remove the attribute');

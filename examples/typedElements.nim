@@ -84,6 +84,8 @@ when isMainModule and defined(js):
   proc App(): Node =
     let expanded = signal(false)
     let tone = signal("calm")
+    let camelOpen = signal(false)
+    let camelChecked = signal(false)
 
     Page:
       Card:
@@ -130,6 +132,48 @@ when isMainModule and defined(js):
           ): "toggle aria-expanded"
         d(id = "aria-panel", hidden = derived(expanded, proc (x: bool): bool = not x)):
           p: "Panel contents."
+
+      Card:
+        Legend: "camelCase spellings, no backticks"
+        Hint:
+          "Hyphenated names are not Nim identifiers, so "
+          Code: "`aria-label`"
+          " needs backticks. The camelCase spelling is accepted instead and resolves to "
+          "the real attribute: "
+          Code: "ariaLabel"
+          " sets "
+          Code: "aria-label"
+          ", "
+          Code: "dataRevealDelay"
+          " sets "
+          Code: "data-reveal-delay"
+          ", and "
+          Code: "htmlFor"
+          " sets "
+          Code: "for"
+          "."
+        Row:
+          label(htmlFor = "camel-check", id = "camel-label"):
+            "Click this label — htmlFor points it at the checkbox:"
+          input(
+            id = "camel-check",
+            `type` = "checkbox",
+            checked = camelChecked,
+            ariaLabel = "written as ariaLabel"
+          )
+        Row:
+          Btn(
+            id = "camel-toggle",
+            ariaExpanded = camelOpen,
+            ariaControls = "camel-panel",
+            onClick = proc (e: Event) = camelOpen.set(not camelOpen.get())
+          ): "toggle (written ariaExpanded)"
+        d(
+          id = "camel-panel",
+          dataRevealDelay = "200",
+          hidden = derived(camelOpen, proc (x: bool): bool = not x)
+        ):
+          p: "Shown by a signal bound through the camelCase spelling."
 
       Card:
         Legend: "Escape hatch for nonstandard attributes"
