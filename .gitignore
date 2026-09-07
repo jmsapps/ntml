@@ -47,10 +47,7 @@ notes*
 nimble.develop
 nimble.paths
 config.nims
-
-# Test harness JS is source, not build output. The blanket `*.js` rule above would
-# otherwise exclude it and leave the suite broken on a fresh clone.
-!tests/dom-harness.js
+!tests/*.js
 
 # Local project agent guidance
 /AGENTS.md

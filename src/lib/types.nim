@@ -14,6 +14,14 @@ when defined(js):
       signalSubs*: seq[Subscriber[T]]
       signalWriteThrough*: proc (newValue: T)
       signalInternalUpdate*: bool
+      signalConnect*: proc (): Unsub
+      signalDisconnect*: Unsub
+      signalRecompute*: proc ()
+      signalNotify*: proc ()
+      signalDependents*: seq[proc ()]
+      signalDirty*: bool
+      signalQueued*: bool
+      signalComputing*: bool
 
     Router* = object
       location*: Signal[string]
@@ -45,6 +53,11 @@ when defined(js):
       eventType*: cstring
       handler*: proc (e: Event)
 
+    KeyAttrBinding* = object
+      node*: Node
+      nodeIndex*: int
+      rebind*: proc (target: Node): Unsub
+
     KeyPatchProc*[T] = proc (startMarker: Node, endMarker: Node, value: T): KeyRenderResult
 
     KeyRenderResult* = object
@@ -53,6 +66,7 @@ when defined(js):
       nodePaths*: seq[seq[int]]
       cleanups*: seq[proc ()]
       eventBindings*: seq[KeyEventBinding]
+      attrBindings*: seq[KeyAttrBinding]
 
     KeyEntryCache*[T] = object
       entries*: Table[string, KeyRenderResult]
