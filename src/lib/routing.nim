@@ -165,7 +165,7 @@ when defined(js):
 
   proc navigate*(path: string, replace = false) =
     var normalized = normalizePath(path)
-    let base = ensureRouteSignal().get()
+    let base = stripQueryHash(ensureRouteSignal().get())
 
     if path.startsWith("+/"):
       let rel = path[2..^1]               # remove "+/"
