@@ -192,10 +192,52 @@ test('keyed patching keeps attributes current and rows reactive', async tier => 
   });
 });
 
+test('typed elements enforce attributes and still render custom and ARIA values', async tier => {
+  await example(tier, 'typedElements', async page => {
+    const toggle = page.locator('#aria-toggle');
+    assert(await toggle.getAttribute('aria-expanded') === 'false',
+      `collapsed control should report aria-expanded="false", got ${await toggle.getAttribute('aria-expanded')}`);
+    await toggle.click();
+    assert(await toggle.getAttribute('aria-expanded') === 'true',
+      `expanded control should report aria-expanded="true", got ${await toggle.getAttribute('aria-expanded')}`);
+    await toggle.click();
+    assert(await toggle.getAttribute('aria-expanded') === 'false', 'aria-expanded should return to "false"');
+
+    const table = page.locator('#raw-table');
+    assert(await table.getAttribute('x-state') === 'ready', 'customAttrs table form should forward names verbatim');
+    assert(await table.getAttribute('x-tone') === 'calm', 'customAttrs should accept a signal value');
+    assert((await page.locator('#tone-state').textContent()).trim() === 'calm',
+      'the mirrored x-tone value should start at "calm"');
+    await page.locator('#tone-btn').click();
+    assert(await table.getAttribute('x-tone') === 'alert', 'a customAttrs signal should stay reactive');
+    assert((await page.locator('#tone-state').textContent()).trim() === 'alert',
+      'the mirrored x-tone value should follow the attribute');
+    await page.locator('#tone-btn').click();
+    assert(await table.getAttribute('x-tone') === 'calm', 'toggling back should restore the original value');
+
+    const tuples = page.locator('#raw-tuples');
+    assert(await tuples.getAttribute('hx-get') === '/api', 'rawAttrs form should forward names verbatim');
+    assert(await tuples.getAttribute('hx-swap') === 'outerHTML', 'rawAttrs should forward every entry');
+
+    const prefixed = page.locator('#prefixed');
+    assert(await prefixed.getAttribute('data-kind') === 'demo', 'data-* should pass through');
+    assert(await prefixed.getAttribute('aria-label') === 'prefixed span', 'aria-* strings should pass through');
+
+    const field = page.locator('#typed-field');
+    assert(await field.getAttribute('type') === 'text', 'typed string attributes should still render');
+    assert(await field.getAttribute('required') === null, 'required=false should remove the attribute');
+  });
+});
+
 test('combobox, treeview, and focus keyboard interactions run in a real browser', async tier => {
   await example(tier, 'combobox', async page => {
-    const cb = page.locator('[role=combobox]'); assert(await cb.count() === 1 && await cb.getAttribute('aria-expanded') === null);
+    const cb = page.locator('[role=combobox]');
+    assert(await cb.count() === 1);
+    assert(await cb.getAttribute('aria-expanded') === 'false',
+      `closed combobox should report aria-expanded="false", got ${await cb.getAttribute('aria-expanded')}`);
     await cb.fill('a'); assert(await page.locator('[role=listbox]').count() === 1 && await page.locator('[role=option]').count() > 0);
+    assert(await cb.getAttribute('aria-expanded') === 'true',
+      `open combobox should report aria-expanded="true", got ${await cb.getAttribute('aria-expanded')}`);
     await cb.press('ArrowDown'); assert(await cb.getAttribute('aria-activedescendant') === 'cb-option-0');
   });
   // Two separate pages on purpose. Clicking a twisty also MOVES SELECTION to that node

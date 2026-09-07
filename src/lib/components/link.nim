@@ -5,6 +5,7 @@ when defined(js):
 
   import ../elements
   import ../routing
+  import ../schema
   import ../types
 
   proc linkHrefValue(href: string): string = href
@@ -76,13 +77,7 @@ when defined(js):
       raw.replace(" ", "")
 
     proc isAllowedExtraAttr(name: string): bool {.compileTime.} =
-      name.startsWith("data-") or name.startsWith("aria-")
-
-    proc isKnownAttr(name: string): bool {.compileTime.} =
-      name in [
-        "href", "class", "id", "title", "style", "tabindex", "target", "rel",
-        "download", "css", "onClick", "replace", "role"
-      ]
+      isAllowedAttr("a", name)
 
     var hrefExpr: NimNode = nil
     var onClickExpr: NimNode = nil
@@ -106,8 +101,8 @@ when defined(js):
         elif name == "replace":
           replaceExpr = a[1]
         else:
-          if name.len > 0 and not isKnownAttr(name) and not isAllowedExtraAttr(name):
-            error("Link extra attributes must start with data- or aria-: " & name, a)
+          if name.len > 0 and not isAllowedExtraAttr(name):
+            error("attribute '" & name & "' is not valid on <a>, which Link renders", a)
           forwarded.add(a)
 
       of nnkInfix:
@@ -121,8 +116,8 @@ when defined(js):
           elif name == "replace":
             replaceExpr = a[2]
           else:
-            if name.len > 0 and not isKnownAttr(name) and not isAllowedExtraAttr(name):
-              error("Link extra attributes must start with data- or aria-: " & name, a)
+            if name.len > 0 and not isAllowedExtraAttr(name):
+              error("attribute '" & name & "' is not valid on <a>, which Link renders", a)
             forwarded.add(newTree(nnkExprEqExpr, a[1], a[2]))
         else:
           children.add(a)

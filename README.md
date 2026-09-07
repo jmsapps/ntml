@@ -90,6 +90,7 @@ nim js --out:index.js examples/helloWorld.nim
 - **Overloads** (`examples/overloads.nim`): comprehensive showcase of signal operator overloads in one live dashboard.
 - **Treeview a11y** (`examples/treeview.nim`): nested `role="tree"`/`treeitem`/`group` structure with recursive rendering, `aria-expanded` bound through a derived string, and arrow-key expand/collapse.
 - **Focus & Keyboard** (`examples/focusKeyboard.nim`): roving focus across a control row with arrow keys, programmatic focus after mount, and a signal-driven focus indicator.
+- **Typed Elements** (`examples/typedElements.nim`): compile-time checking of attribute names, element/attribute combinations, and value types, with `customAttrs` as the escape hatch for deliberate nonstandard attributes and ARIA booleans serializing as `"true"`/`"false"`.
 
 ### Relative navigation
 
