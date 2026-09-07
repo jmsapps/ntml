@@ -395,4 +395,51 @@ suite "matchRoute":
     let (ok, _) = match("/a/b", "/a/b/")
     check ok
 
+type NilProbe = ref object
+  name: string
+
+suite "nil comparison with the signal operator overloads in scope":
+  test "a ref type compares to nil in both directions":
+    let present = NilProbe(name: "x")
+    var absent: NilProbe
+    check present != nil
+    check not (present == nil)
+    check absent == nil
+    check not (absent != nil)
+
+  test "a cstring compares to nil":
+    var absent: cstring
+    check absent == nil
+    check not (absent != nil)
+
+  test "a signal compares to nil":
+    var absent: Signal[int]
+    check absent == nil
+    check signal(1) != nil
+
+suite "signal comparison overloads still return signals":
+  test "signal on the left compares to a value":
+    let s = signal("a")
+    check (s == "a").get()
+    check (s != "b").get()
+
+  test "value on the left compares to a signal":
+    let s = signal("a")
+    check ("a" == s).get()
+    check ("b" != s).get()
+
+  test "two signals compare":
+    let a = signal(3)
+    let b = signal(3)
+    let c = signal(4)
+    check (a == b).get()
+    check (a != c).get()
+
+  test "a signal comparison stays reactive":
+    let s = signal(1)
+    let isTwo = s == 2
+    check not isTwo.get()
+    s.set(2)
+    check isTwo.get()
+
 finish()

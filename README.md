@@ -110,6 +110,64 @@ To send a query deliberately, put it on the argument — `navigate("+/edit?mode=
 Pass `replace = true` as the second argument to use `history.replaceState` instead of
 pushing a new entry.
 
+### Shared state across components
+
+A signal declared at module scope is NTML's shared store. There is no separate store type,
+provider, or dispatch layer — import the module and every component reads and writes the
+same value.
+
+```nim
+# store.nim
+import ntml
+
+let theme* = signal("light")
+let count* = signal(0)
+```
+
+```nim
+# counter.nim
+import ntml
+import store
+
+proc Counter*(): Node =
+  button(class = theme, onClick = proc (e: Event) = count.set(count.get() + 1)):
+    "clicked "; count
+```
+
+```nim
+# readout.nim
+import ntml
+import store
+
+proc Readout*(): Node =
+  p: "count is "; count
+```
+
+`Counter` and `Readout` share no parent signal and never pass a value between them. A click
+in one updates the other, because both are bound to the same signal.
+
+Because a store is just a signal, everything that works on a signal works here: `set` is
+the update path, `derived` composes it, and the DSL binds it in markup unchanged. Cleanup
+is automatic for any signal bound through the DSL — the subscription is registered against
+the node and released when that node is removed, so mounting and unmounting a subscriber
+does not accumulate subscriptions on a long-lived store.
+
+Persistence is not built in. Wire it explicitly where you want it:
+
+```nim
+proc jsGetItem(k: cstring): cstring {.importjs: "(window.localStorage.getItem(#) || '')".}
+proc jsSetItem(k, v: cstring) {.importjs: "window.localStorage.setItem(#,#)".}
+
+if jsGetItem("theme").len > 0:
+  theme.set($jsGetItem("theme"))
+
+discard theme.sub(proc (v: string) = jsSetItem("theme", cstring(v)))
+```
+
+One caveat when testing: a module-level store is created once per program, so a value
+written by one test is still there in the next. Set it to a known value in each test's
+setup rather than relying on its initial value.
+
 ## Testing
 
 The suite runs headless and covers three tiers: the reactive core and router as pure logic,

@@ -54,6 +54,18 @@ proc run() =
     discard jsRemoveChild(document.body, el)
   check("mount/unmount churn must not accumulate listeners", totalListeners() == baseline)
 
+  let shared = signal("a")
+  let subsBaseline = shared.signalSubs.len
+  for i in 0 .. 4:
+    let el = span(id = shared)
+    discard jsAppendChild(document.body, el)
+    cleanupSubtree(el)
+    discard jsRemoveChild(document.body, el)
+  check(
+    "mount/unmount churn must not accumulate signal subscriptions",
+    shared.signalSubs.len == subsBaseline
+  )
+
 try:
   run()
   if failures == 0:

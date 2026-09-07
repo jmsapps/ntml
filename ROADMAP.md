@@ -50,10 +50,11 @@
 
 ## Version 0.6.0 — Stability & Scale
 
-### ⬜️ Global Store / Dispatching
+### ⬜️ Continuous Integration
 
-- Introduce global context and dispatch mechanism.
-- Allow signals to propagate updates across components.
+- Run `nimble test` automatically on push and pull request.
+- Cover Chromium, Firefox and WebKit, not just the default engine.
+- Compile a downstream consumer against `master` to catch breaking API changes before release.
 
 ### ⬜️ Basic Error Handling
 

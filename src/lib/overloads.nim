@@ -24,6 +24,10 @@ when defined(js):
     )
 
 
+  proc `==`*[T](a: T, b: typeof(nil)): bool =
+    a.isNil
+
+
   proc `==`*[T](a: Signal[T], b: T): Signal[bool] =
     derived(a, proc(x: T): bool = x == b)
 
@@ -34,6 +38,10 @@ when defined(js):
 
   proc `==`*[T](a, b: Signal[T]): Signal[bool] =
     combine2(a, b, proc(x, y: T): bool = x == y)
+
+
+  proc `!=`*[T](a: T, b: typeof(nil)): bool =
+    not a.isNil
 
 
   proc `!=`*[T](a: Signal[T], b: T): Signal[bool] =
