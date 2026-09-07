@@ -84,8 +84,10 @@ when defined(js):
 
 
   proc get*[T](src: Signal[T]): T =
-    if src.signalRecompute != nil and not src.signalComputing and
-       (src.signalDirty or src.signalDisconnect == nil):
+    if (
+      src.signalRecompute != nil and not src.signalComputing and
+      (src.signalDirty or src.signalDisconnect == nil)
+    ):
       src.signalComputing = true
       try:
         src.signalRecompute()
