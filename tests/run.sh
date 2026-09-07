@@ -25,7 +25,7 @@ EX_OUT="$OUT/examples"
 mkdir -p "$EX_OUT"
 
 # Test modules. Browser coverage is a Playwright module, not a Nim test module.
-LOGIC_MODULES=(tsmoke tlogic)
+LOGIC_MODULES=(tsmoke tlogic tschema)
 BROWSER_MODULES=(browser_cleanup)
 
 say() { printf '\n\033[1m%s\033[0m\n' "$*"; }
@@ -92,6 +92,38 @@ for m in "${LOGIC_MODULES[@]}"; do
 done
 
 run_tier "browser examples and cleanup (Playwright $BROWSER)" node tests/browser-tests.js
+
+check_rejections() {
+  local ok=0
+  for f in tests/fixtures/reject/*.nim; do
+    local name expected out expected_file
+    name="$(basename "$f" .nim)"
+    expected_file="tests/fixtures/reject/$name.expected"
+
+    if [ ! -f "$expected_file" ]; then
+      echo "  NO EXPECTATION   $name"
+      ok=1
+      continue
+    fi
+
+    expected="$(cat "$expected_file")"
+
+    if out="$(nim js --hints:off --warnings:off --out:"$OUT/reject-$name.js" "$f" 2>&1)"; then
+      echo "  UNEXPECTED PASS  $name (should not compile)"
+      ok=1
+    elif ! printf '%s' "$out" | grep -qF "$expected"; then
+      echo "  WRONG ERROR      $name"
+      echo "      expected: $expected"
+      printf '%s' "$out" | grep -iE 'error' | head -2 | sed 's/^/      actual:   /'
+      ok=1
+    else
+      echo "  rejects $name: $expected"
+    fi
+  done
+  return "$ok"
+}
+
+run_tier "negative compile fixtures" check_rejections
 
 # ---------------------------------------------------------------- summary
 say "Summary"

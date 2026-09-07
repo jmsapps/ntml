@@ -40,6 +40,10 @@ when defined(js):
 
 
   proc setBooleanAttr(el: Node, k: string, on: bool) =
+    if k.toLowerAscii().startsWith("aria-"):
+      jsSetAttribute(el, cstring(k), cstring(if on: "true" else: "false"))
+      return
+
     jsSetProp(el, propKey(k), on)
 
     if on:
@@ -1044,7 +1048,6 @@ when defined(js):
   proc mountAttr*(el: Node, k: string, v: bool) = applyAndCapture(el, boolAttrBinder(k, v))
   proc mountAttr*(el: Node, k: string, v: int) = applyAndCapture(el, stringAttrBinder(k, $v))
   proc mountAttr*(el: Node, k: string, v: float) = applyAndCapture(el, stringAttrBinder(k, $v))
-  proc mountAttr*[T](el: Node, k: string, v: T) = applyAndCapture(el, stringAttrBinder(k, $v)) # fallback
 
 
   proc mountAttr*(el: Node, k: string, s: Signal[string]) =
@@ -1079,13 +1082,6 @@ when defined(js):
     applyAndCapture(el, proc (t: Node): Unsub =
       setStringAttr(t, k, $s.get())
       s.sub(proc(x: float) = setStringAttr(t, k, $x))
-    )
-
-
-  proc mountAttr*[T](el: Node, k: string, s: Signal[T]) =
-    applyAndCapture(el, proc (t: Node): Unsub =
-      setStringAttr(t, k, $s.get())
-      s.sub(proc(x: T) = setStringAttr(t, k, $x))
     )
 
 

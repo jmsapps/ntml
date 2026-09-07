@@ -1,4 +1,4 @@
-version       = "0.5.6"
+version       = "0.5.7"
 author        = "jmsapps"
 license       = "MIT"
 description   = "A reactive, client-side single-page application (SPA) renderer written in Nim."

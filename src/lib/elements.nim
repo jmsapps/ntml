@@ -8,6 +8,7 @@ import
   mount,
   overloads,
   routing,
+  schema,
   shims,
   signals,
   styled
@@ -87,7 +88,11 @@ macro defineHtmlElement*(tagNameLit: static[string]; args: varargs[untyped]): un
     result.clean = strip(body)
     result.keyExpr = keyCaptured
 
-  proc lowerMountAttributes(keyRaw: string, value: NimNode) {.compileTime.} =
+  proc lowerMountAttributes(
+    keyRaw: string,
+    value: NimNode,
+    nameNode: NimNode = nil
+  ) {.compileTime.} =
     var key: string = keyRaw
 
     if key == "className":
@@ -95,6 +100,19 @@ macro defineHtmlElement*(tagNameLit: static[string]; args: varargs[untyped]): un
 
     let keyLowered: string = key.toLowerAscii()
     let kLit: NimNode = newLit(key)
+
+    if not isAllowedAttr(tagName, key):
+      let blame: NimNode = (if nameNode.isNil: value else: nameNode)
+      if isKnownAttrAnywhere(key):
+        error(
+          "attribute '" & key & "' is not valid on <" & tagName & ">",
+          blame
+        )
+      else:
+        error(
+          "unknown attribute '" & key & "' on <" & tagName & ">",
+          blame
+        )
 
     if keyLowered.len >= 3 and keyLowered.startsWith("on"):
       let event: string = keyLowered[2..^1]
@@ -157,6 +175,40 @@ macro defineHtmlElement*(tagNameLit: static[string]; args: varargs[untyped]): un
       attrSetters.add(newCall(ident"applyStyleVars", node, value))
       return
 
+    elif keyLowered == "customattrs":
+      proc pushRawAttr(rawName, rawValue: NimNode) {.compileTime.} =
+        if rawName.kind notin {nnkStrLit, nnkTripleStrLit}:
+          error("customAttrs names must be string literals", rawName)
+
+        let rawCall: NimNode = newCall(ident"mountAttr", node, rawName, rawValue)
+        rawCall.copyLineInfo(rawValue)
+        attrSetters.add(rawCall)
+
+      const usage =
+        "customAttrs expects {\"name\": value, ...} or rawAttrs((\"name\", value), ...)"
+
+      case value.kind
+      of nnkTableConstr:
+        for entry in value:
+          if entry.kind != nnkExprColonExpr:
+            error(usage, entry)
+          pushRawAttr(entry[0], entry[1])
+
+      of nnkCall, nnkCommand:
+        if value[0].kind != nnkIdent or value[0].strVal != "rawAttrs":
+          error(usage, value)
+
+        for i in 1 ..< value.len:
+          let entry: NimNode = value[i]
+          if entry.kind notin {nnkTupleConstr, nnkPar} or entry.len != 2:
+            error("rawAttrs entries must be (\"name\", value) tuples", entry)
+          pushRawAttr(entry[0], entry[1])
+
+      else:
+        error(usage, value)
+
+      return
+
     if value.kind == nnkIfExpr or value.kind == nnkIfStmt:
       var cond, thenExpr, elseExpr: NimNode
       let head: NimNode = value[0]
@@ -204,7 +256,9 @@ macro defineHtmlElement*(tagNameLit: static[string]; args: varargs[untyped]): un
 
       return
 
-    attrSetters.add(newCall(ident"mountAttr", node, kLit, value))
+    let attrCall: NimNode = newCall(ident"mountAttr", node, kLit, value)
+    attrCall.copyLineInfo(value)
+    attrSetters.add(attrCall)
 
   proc lowerMountChildren(parent, node: NimNode): NimNode {.compileTime.} =
     proc emptyFragmentExpr(): NimNode {.compileTime.} =
@@ -490,11 +544,11 @@ macro defineHtmlElement*(tagNameLit: static[string]; args: varargs[untyped]): un
         pushChild(it)
 
     of nnkExprEqExpr:
-      lowerMountAttributes($a[0], a[1])
+      lowerMountAttributes($a[0], a[1], a[0])
 
     of nnkInfix:
       if a[0].kind == nnkIdent and $a[0] == "=":
-        lowerMountAttributes($a[1], a[2])
+        lowerMountAttributes($a[1], a[2], a[1])
 
       else:
         pushChild(a)
