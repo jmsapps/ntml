@@ -12,6 +12,9 @@ when defined(js):
     nextId = 0
     cleanupHook*: proc (u: Unsub) = nil
     currentKeyedResult*: ptr KeyRenderResult = nil
+    notifyQueue: seq[proc ()] = @[]
+    propagationDepth = 0
+    draining = false
 
 
   proc nodeKey(n: Node): int
@@ -80,6 +83,55 @@ when defined(js):
     return "signal_" & $nextId
 
 
+  proc get*[T](src: Signal[T]): T =
+    if (
+      src.signalRecompute != nil and not src.signalComputing and
+      (src.signalDirty or src.signalDisconnect == nil)
+    ):
+      src.signalComputing = true
+      try:
+        src.signalRecompute()
+      finally:
+        src.signalComputing = false
+        src.signalDirty = false
+
+    src.signalValue
+
+
+  proc enqueueNotify[T](src: Signal[T]) =
+    if src.signalQueued or src.signalSubs.len == 0 or src.signalNotify == nil:
+      return
+
+    src.signalQueued = true
+    notifyQueue.add(src.signalNotify)
+
+
+  proc markDependentsDirty[T](src: Signal[T]) =
+    let snapshot = src.signalDependents
+
+    for mark in snapshot:
+      if mark != nil:
+        mark()
+
+
+  proc drainNotifications() =
+    if draining:
+      return
+
+    draining = true
+    var i = 0
+
+    while i < notifyQueue.len:
+      let notify = notifyQueue[i]
+      inc i
+
+      if notify != nil:
+        notify()
+
+    notifyQueue.setLen(0)
+    draining = false
+
+
   proc signal*[T](initial: T): Signal[T] =
     new(result)
     result.signalId = debugId()
@@ -87,10 +139,34 @@ when defined(js):
     result.signalSubs = @[]
     result.signalWriteThrough = nil
     result.signalInternalUpdate = false
+    result.signalConnect = nil
+    result.signalDisconnect = nil
+    result.signalRecompute = nil
+    result.signalDependents = @[]
+    result.signalDirty = false
+    result.signalQueued = false
+    result.signalComputing = false
 
+    let self = result
 
-  proc get*[T](src: Signal[T]): T =
-    src.signalValue
+    self.signalNotify = proc () =
+      if self.signalRecompute == nil:
+        self.signalQueued = false
+        let snapshot = self.signalSubs
+
+        for f in snapshot:
+          f(self.signalValue)
+
+      else:
+        let previous = self.signalValue
+        let settled = self.get()
+        self.signalQueued = false
+
+        if settled != previous:
+          let snapshot = self.signalSubs
+
+          for f in snapshot:
+            f(settled)
 
 
   proc set*[T](src: Signal[T], newValue: T) =
@@ -98,20 +174,65 @@ when defined(js):
       src.signalWriteThrough(newValue)
       return
 
-    if newValue != src.signalValue:
-      src.signalValue = newValue
+    if newValue == src.signalValue:
+      return
 
-      # prevents subs mutation during assignment
-      let snapshot = src.signalSubs
+    src.signalValue = newValue
 
-      for f in snapshot:
-        f(newValue)
+    inc propagationDepth
+    enqueueNotify(src)
+    markDependentsDirty(src)
+    dec propagationDepth
+
+    if propagationDepth == 0:
+      drainNotifications()
+
+
+  proc setInternal*[T](src: Signal[T], newValue: T) =
+    src.signalInternalUpdate = true
+    try:
+      src.set(newValue)
+    finally:
+      src.signalInternalUpdate = false
+
+
+  proc ensureConnected[T](src: Signal[T]) =
+    if src.signalConnect != nil and src.signalDisconnect == nil:
+      src.signalDisconnect = src.signalConnect()
+      discard src.get()
+
+
+  proc releaseIfUnobserved[T](src: Signal[T]) =
+    if src.signalSubs.len == 0 and src.signalDependents.len == 0 and
+       src.signalDisconnect != nil:
+      let disconnect = src.signalDisconnect
+      src.signalDisconnect = nil
+      disconnect()
+
+
+  proc addDependent*[T](src: Signal[T], mark: proc ()): Unsub =
+    ensureConnected(src)
+    src.signalDependents.add(mark)
+
+    result = proc() =
+      var i: int = -1
+
+      for idx, g in src.signalDependents:
+        if g == mark:
+          i = idx
+          break
+
+      if i >= 0:
+        src.signalDependents.delete(i)
+        releaseIfUnobserved(src)
 
 
   proc sub*[T](src: Signal[T], fn: Subscriber[T], fire = true): Unsub =
+    ensureConnected(src)
     src.signalSubs.add(fn)
+
     if fire:
-      fn(src.signalValue)
+      fn(src.get())
 
     result = proc() =
       var i: int = -1
@@ -123,20 +244,39 @@ when defined(js):
 
       if i >= 0:
         src.signalSubs.delete(i)
+        releaseIfUnobserved(src)
+
+
+  proc asComputed*[T](
+    res: Signal[T];
+    recompute: proc ();
+    connect: proc (mark: proc ()): Unsub
+  ): Signal[T] =
+    res.signalRecompute = recompute
+
+    let mark = proc () =
+      if res.signalDirty:
+        return
+
+      res.signalDirty = true
+      enqueueNotify(res)
+      markDependentsDirty(res)
+
+    res.signalConnect = proc (): Unsub =
+      res.signalDirty = true
+      connect(mark)
+
+    res
 
 
   proc derived*[A, B](src: Signal[A], fn: proc(a: A): B): Signal[B] =
-    let res = signal[B](fn(src.signalValue))
+    let res = signal[B](fn(src.get()))
 
-    discard src.sub(proc(a: A) =
-      res.signalInternalUpdate = true
-      try:
-        res.set(fn(a))
-      finally:
-        res.signalInternalUpdate = false
+    asComputed(
+      res,
+      proc () = res.setInternal(fn(src.get())),
+      proc (mark: proc ()): Unsub = src.addDependent(mark)
     )
-
-    res
 
 
   template track*(src, expr: untyped): untyped =

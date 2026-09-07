@@ -1,3 +1,6 @@
-const BOOLEAN_ATTRS*: array[8, string] = [
-  "hidden", "disabled", "checked", "selected", "readonly", "multiple", "required", "open"
+const BOOLEAN_ATTRS* = [
+  "allowfullscreen", "async", "autofocus", "autoplay", "checked", "controls", "default",
+  "defer", "disabled", "formnovalidate", "hidden", "inert", "ismap", "itemscope", "loop",
+  "multiple", "muted", "nomodule", "novalidate", "open", "playsinline", "readonly",
+  "required", "reversed", "selected"
 ]

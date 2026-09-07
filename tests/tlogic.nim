@@ -181,6 +181,163 @@ suite "effect":
     c.set(1)
     check runs == 1
 
+proc observers[T](s: Signal[T]): int =
+  s.signalSubs.len + s.signalDependents.len
+
+suite "computed lifetime":
+
+  test "creating computeds without an observer attaches nothing":
+    let src = signal(0)
+    for i in 0 ..< 100:
+      discard derived(src, proc (x: int): int = x * 2)
+    check observers(src) == 0
+
+  test "a computed detaches from its source when its last observer goes":
+    let src = signal(0)
+    let d = derived(src, proc (x: int): int = x * 2)
+    let stop = d.sub(proc (v: int) = discard, fire = false)
+    check observers(src) == 1
+    stop()
+    check observers(src) == 0
+
+  test "a detached computed stops doing work":
+    let src = signal(0)
+    var runs = 0
+    let d = derived(src, proc (x: int): int =
+      inc(runs)
+      x * 2
+    )
+    let stop = d.sub(proc (v: int) = discard, fire = false)
+    src.set(1)
+    let before = runs
+    stop()
+    src.set(2)
+    check runs == before
+
+  test "detaching cascades up a chain":
+    let a = signal(1)
+    let b = derived(a, proc (x: int): int = x + 1)
+    let c = derived(b, proc (x: int): int = x * 2)
+    let stop = c.sub(proc (v: int) = discard, fire = false)
+    check observers(a) == 1
+    check observers(b) == 1
+    stop()
+    check observers(a) == 0
+    check observers(b) == 0
+
+  test "operator overloads detach with their consumer":
+    let x = signal(1)
+    let y = signal(2)
+    let eq = x == y
+    let stop = eq.sub(proc (v: bool) = discard, fire = false)
+    check observers(x) == 1
+    check observers(y) == 1
+    stop()
+    check observers(x) == 0
+    check observers(y) == 0
+
+  test "get on a detached computed still returns a fresh value":
+    let src = signal(1)
+    let d = derived(src, proc (x: int): int = x * 10)
+    let stop = d.sub(proc (v: int) = discard, fire = false)
+    stop()
+    src.set(7)
+    check d.get() == 70
+
+  test "reattaching resyncs a computed that went stale while detached":
+    let src = signal(1)
+    let d = derived(src, proc (x: int): int = x * 10)
+    let stop = d.sub(proc (v: int) = discard, fire = false)
+    stop()
+    src.set(5)
+    var seen: seq[int] = @[]
+    let stop2 = d.sub(proc (v: int) = seen.add(v))
+    check seen == @[50]
+    stop2()
+
+  test "a reattached computed is reactive again":
+    let src = signal(1)
+    let d = derived(src, proc (x: int): int = x * 10)
+    let first = d.sub(proc (v: int) = discard, fire = false)
+    first()
+    var seen: seq[int] = @[]
+    let second = d.sub(proc (v: int) = seen.add(v), fire = false)
+    src.set(3)
+    second()
+    check seen == @[30]
+
+  test "attach/detach churn does not accumulate subscribers":
+    let src = signal(0)
+    let d = derived(src, proc (x: int): int = x * 2)
+    for i in 0 ..< 20:
+      let stop = d.sub(proc (v: int) = discard, fire = false)
+      src.set(i)
+      stop()
+    check observers(src) == 0
+    check observers(d) == 0
+
+suite "glitch-free propagation":
+
+  test "a tautology never emits a value it cannot hold":
+    let a = signal(1)
+    let b = a == 1
+    let c = a != 1
+    let d = b or c
+    var seen: seq[bool] = @[]
+    let stop = d.sub(proc (v: bool) = seen.add(v), fire = false)
+    check d.get()
+    a.set(2)
+    stop()
+    check not seen.contains(false)
+    check d.get()
+
+  test "a settled value reaches a consumer once per source change":
+    let a = signal(1)
+    let b = derived(a, proc (x: int): int = x + 1)
+    let c = derived(a, proc (x: int): int = x * 10)
+    let d = combine2(b, c, proc (x, y: int): int = x + y)
+    var seen: seq[int] = @[]
+    let stop = d.sub(proc (v: int) = seen.add(v), fire = false)
+    a.set(2)
+    stop()
+    check seen == @[23]
+
+  test "chain width does not multiply emissions":
+    for width in [2, 4, 8]:
+      let src = signal(0)
+      var legs: seq[Signal[string]] = @[]
+      for i in 0 ..< width:
+        legs.add(derived(src, proc (x: int): string = $x))
+      var acc = legs[0]
+      for i in 1 ..< width:
+        acc = acc & legs[i]
+      var emissions = 0
+      let stop = acc.sub((proc (v: string) = inc(emissions)), fire = false)
+      src.set(1)
+      stop()
+      check emissions == 1
+
+  test "an unchanged computed does not emit at all":
+    let a = signal(1)
+    let parity = derived(a, proc (x: int): bool = x mod 2 == 1)
+    var seen: seq[bool] = @[]
+    let stop = parity.sub(proc (v: bool) = seen.add(v), fire = false)
+    a.set(3)
+    stop()
+    check seen.len == 0
+
+  test "a diamond consumer never observes an inconsistent pair":
+    let a = signal(0)
+    let doubled = derived(a, proc (x: int): int = x * 2)
+    let quadrupled = derived(a, proc (x: int): int = x * 4)
+    var bad = 0
+    let stop = combine2(doubled, quadrupled, proc (x, y: int): int = y - 2 * x).sub(
+      proc (v: int) = (if v != 0: inc(bad)), fire = false)
+    for i in 1 .. 5:
+      a.set(i)
+    stop()
+    check bad == 0
+
 suite "matchRoute":
   # Helper: run a match and hand back both the result and the captured params.
   proc match(pattern, path: string): (bool, Table[string, string]) =

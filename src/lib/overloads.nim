@@ -10,9 +10,18 @@ when defined(js):
 
   proc combine2*[A, B, R](a: Signal[A], b: Signal[B], fn: proc(x: A, y: B): R): Signal[R] =
     let res = signal(fn(a.get(), b.get()))
-    discard a.sub(proc(x: A) = res.set(fn(x, b.get())))
-    discard b.sub(proc(y: B) = res.set(fn(a.get(), y)))
-    res
+
+    asComputed(
+      res,
+      proc () = res.setInternal(fn(a.get(), b.get())),
+      proc (mark: proc ()): Unsub =
+        let stopA = a.addDependent(mark)
+        let stopB = b.addDependent(mark)
+
+        result = proc () =
+          stopA()
+          stopB()
+    )
 
 
   proc `==`*[T](a: Signal[T], b: T): Signal[bool] =

@@ -100,14 +100,16 @@ when defined(js):
     nodes: seq[Node] = @[],
     nodePaths: seq[seq[int]] = @[],
     cleanups: seq[proc ()] = @[],
-    eventBindings: seq[KeyEventBinding] = @[]
+    eventBindings: seq[KeyEventBinding] = @[],
+    attrBindings: seq[KeyAttrBinding] = @[]
   ): KeyRenderResult =
     KeyRenderResult(
       root: root,
       nodes: nodes,
       nodePaths: nodePaths,
       cleanups: cleanups,
-      eventBindings: eventBindings
+      eventBindings: eventBindings,
+      attrBindings: attrBindings
     )
 
 
@@ -160,6 +162,15 @@ when defined(js):
   proc addEventBindingCurrent*(node: Node; eventType: cstring; handler: proc (e: Event)) =
     if currentKeyedResult != nil:
       addEventBinding(currentKeyedResult[], node, eventType, handler)
+
+
+  proc addAttrBinding*(result: var KeyRenderResult; node: Node; rebind: proc (target: Node): Unsub) =
+    result.attrBindings.add(KeyAttrBinding(node: node, nodeIndex: -1, rebind: rebind))
+
+
+  proc addAttrBindingCurrent*(node: Node; rebind: proc (target: Node): Unsub) =
+    if currentKeyedResult != nil:
+      addAttrBinding(currentKeyedResult[], node, rebind)
 
 
   proc beginKeyedCapture*(res: var KeyRenderResult) =
@@ -307,19 +318,21 @@ when defined(js):
       res.nodePaths.add(data.paths[i])
 
 
+  proc indexOfNode(nodes: seq[Node], node: Node): int =
+    result = -1
+    for j in 0 ..< nodes.len:
+      if nodes[j] == node:
+        return j
+
+
   proc finalizeKeyedCapture*(res: var KeyRenderResult) =
-    if res.eventBindings.len == 0:
-      return
     for i in 0 ..< res.eventBindings.len:
-      if res.eventBindings[i].nodeIndex >= 0:
-        continue
-      let nodeRef = res.eventBindings[i].node
-      var idx = -1
-      for j in 0 ..< res.nodes.len:
-        if res.nodes[j] == nodeRef:
-          idx = j
-          break
-      res.eventBindings[i].nodeIndex = idx
+      if res.eventBindings[i].nodeIndex < 0:
+        res.eventBindings[i].nodeIndex = indexOfNode(res.nodes, res.eventBindings[i].node)
+
+    for i in 0 ..< res.attrBindings.len:
+      if res.attrBindings[i].nodeIndex < 0:
+        res.attrBindings[i].nodeIndex = indexOfNode(res.nodes, res.attrBindings[i].node)
 
 
   proc collectFlatBetween(startMarker, endMarker: Node): seq[Node] =
@@ -446,6 +459,26 @@ when defined(js):
 
 
 
+  proc applyAttrBindings*(res: var KeyRenderResult; liveNodes: seq[Node]) =
+    for i in 0 ..< res.attrBindings.len:
+      let idx = res.attrBindings[i].nodeIndex
+      if idx < 0 or idx >= liveNodes.len:
+        continue
+
+      let target = liveNodes[idx]
+      if target.isNil:
+        continue
+
+      let rebind = res.attrBindings[i].rebind
+      if rebind == nil:
+        continue
+
+      let u = rebind(target)
+      if u != nil:
+        registerCleanup(target, u)
+        res.cleanups.add(u)
+
+
   proc moveRange(parentNode: Node, beforeNode: Node, startMarker: Node, endMarker: Node) =
     let frag = jsCreateFragment()
     var node = startMarker
@@ -557,6 +590,7 @@ when defined(js):
 
     let updated = collectBetweenWithPaths(startMarker, endMarker)
     applyEventBindings(res, startMarker, endMarker, updated.nodes, prevBindings)
+    applyAttrBindings(res, updated.nodes)
     res.nodes = updated.nodes
     res.nodePaths = updated.paths
     cleanupSubtree(res.root)
@@ -985,48 +1019,74 @@ when defined(js):
 
 
   # Attribute mounts
-  proc mountAttr*(el: Node, k: string, v: string) = setStringAttr(el, k, v)
-  proc mountAttr*(el: Node, k: string, v: cstring) = setStringAttr(el, k, $v)
-  proc mountAttr*(el: Node, k: string, v: bool) = setBooleanAttr(el, k, v)
-  proc mountAttr*(el: Node, k: string, v: int) = setStringAttr(el, k, $v)
-  proc mountAttr*(el: Node, k: string, v: float) = setStringAttr(el, k, $v)
-  proc mountAttr*[T](el: Node, k: string, v: T) = setStringAttr(el, k, $v) # fallback
+  proc applyAndCapture(el: Node, rebind: proc (target: Node): Unsub) =
+    let u = rebind(el)
+    if u != nil:
+      registerCleanup(el, u)
+
+    addAttrBindingCurrent(el, rebind)
+
+
+  proc stringAttrBinder(k, v: string): proc (target: Node): Unsub =
+    result = proc (t: Node): Unsub =
+      setStringAttr(t, k, v)
+      nil
+
+
+  proc boolAttrBinder(k: string, v: bool): proc (target: Node): Unsub =
+    result = proc (t: Node): Unsub =
+      setBooleanAttr(t, k, v)
+      nil
+
+
+  proc mountAttr*(el: Node, k: string, v: string) = applyAndCapture(el, stringAttrBinder(k, v))
+  proc mountAttr*(el: Node, k: string, v: cstring) = applyAndCapture(el, stringAttrBinder(k, $v))
+  proc mountAttr*(el: Node, k: string, v: bool) = applyAndCapture(el, boolAttrBinder(k, v))
+  proc mountAttr*(el: Node, k: string, v: int) = applyAndCapture(el, stringAttrBinder(k, $v))
+  proc mountAttr*(el: Node, k: string, v: float) = applyAndCapture(el, stringAttrBinder(k, $v))
+  proc mountAttr*[T](el: Node, k: string, v: T) = applyAndCapture(el, stringAttrBinder(k, $v)) # fallback
 
 
   proc mountAttr*(el: Node, k: string, s: Signal[string]) =
-    setStringAttr(el, k, s.get())
-    let u = s.sub(proc(x: string) = setStringAttr(el, k, x))
-    registerCleanup(el, u)
+    applyAndCapture(el, proc (t: Node): Unsub =
+      setStringAttr(t, k, s.get())
+      s.sub(proc(x: string) = setStringAttr(t, k, x))
+    )
 
 
   proc mountAttr*(el: Node, k: string, s: Signal[cstring]) =
-    setStringAttr(el, k, $s.get())
-    let u = s.sub(proc(x: cstring) = setStringAttr(el, k, $x))
-    registerCleanup(el, u)
+    applyAndCapture(el, proc (t: Node): Unsub =
+      setStringAttr(t, k, $s.get())
+      s.sub(proc(x: cstring) = setStringAttr(t, k, $x))
+    )
 
 
   proc mountAttr*(el: Node, k: string, s: Signal[bool]) =
-    setBooleanAttr(el, k, s.get())
-    let u = s.sub(proc(x: bool) = setBooleanAttr(el, k, x))
-    registerCleanup(el, u)
+    applyAndCapture(el, proc (t: Node): Unsub =
+      setBooleanAttr(t, k, s.get())
+      s.sub(proc(x: bool) = setBooleanAttr(t, k, x))
+    )
 
 
   proc mountAttr*(el: Node, k: string, s: Signal[int]) =
-    setStringAttr(el, k, $s.get())
-    let u = s.sub(proc(x: int) = setStringAttr(el, k, $x))
-    registerCleanup(el, u)
+    applyAndCapture(el, proc (t: Node): Unsub =
+      setStringAttr(t, k, $s.get())
+      s.sub(proc(x: int) = setStringAttr(t, k, $x))
+    )
 
 
   proc mountAttr*(el: Node, k: string, s: Signal[float]) =
-    setStringAttr(el, k, $s.get())
-    let u = s.sub(proc(x: float) = setStringAttr(el, k, $x))
-    registerCleanup(el, u)
+    applyAndCapture(el, proc (t: Node): Unsub =
+      setStringAttr(t, k, $s.get())
+      s.sub(proc(x: float) = setStringAttr(t, k, $x))
+    )
 
 
   proc mountAttr*[T](el: Node, k: string, s: Signal[T]) =
-    setStringAttr(el, k, $s.get())
-    let u = s.sub(proc(x: T) = setStringAttr(el, k, $x))
-    registerCleanup(el, u)
+    applyAndCapture(el, proc (t: Node): Unsub =
+      setStringAttr(t, k, $s.get())
+      s.sub(proc(x: T) = setStringAttr(t, k, $x))
+    )
 
 
   template mountAttrIf*(el: Node, k: string, cond: bool, thenV, elseV: untyped) =

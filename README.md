@@ -81,12 +81,32 @@ nim js --out:index.js examples/helloWorld.nim
 - **Todos** (`examples/todos.nim`): reactive list management with `mountChildFor`, derived filters, two-way `<input>` bindings, and dynamic styling.
 - **Forms** (`examples/forms.nim`): showcases nested signals, validation hints, and `bindValue`/`bindChecked` helpers.
 - **Routing** (`examples/router.nim`): leverages `navigate()` and route signals to orchestrate multipage flows.
+- **Relative Navigation** (`examples/relativeNav.nim`): `navigate("+/seg")` descends a segment, `navigate("-/seg")` replaces the last one, and both resolve against the path alone.
+- **Boolean Attributes** (`examples/booleanAttrs.nim`): shows that a falsey value removes a boolean attribute instead of writing `"false"`, for both string and `Signal[bool]` values.
+- **Keyed Attribute Patching** (`examples/keyedAttrs.nim`): stable keys with changing values, showing that attributes and signal subscriptions survive reconciliation.
 - **Styling** (`examples/styled.nim`): demonstrates the `styled` macro, scoped CSS hashing, and reactive `styleVars`.
 - **Keyed Diffs** (`examples/keyedDiffs.nim`): showcases keyed list rendering, highlighting when entries patch versus remount.
 - **Effects** (`examples/effect.nim`): the `effect` explores the effect API, including cleanup, auto-runners, and delayed updates.
 - **Overloads** (`examples/overloads.nim`): comprehensive showcase of signal operator overloads in one live dashboard.
 - **Treeview a11y** (`examples/treeview.nim`): nested `role="tree"`/`treeitem`/`group` structure with recursive rendering, `aria-expanded` bound through a derived string, and arrow-key expand/collapse.
 - **Focus & Keyboard** (`examples/focusKeyboard.nim`): roving focus across a control row with arrow keys, programmatic focus after mount, and a signal-driven focus indicator.
+
+### Relative navigation
+
+`navigate()` accepts two relative prefixes alongside absolute paths:
+
+```nim
+navigate("/users/1/edit")   # absolute
+navigate("+/edit")          # descend: /users/1        -> /users/1/edit
+navigate("-/settings")      # replace last: /users/1   -> /users/settings
+```
+
+Both resolve against the **path only**. Any query string or hash on the current URL is
+dropped rather than carried into the new route, so a stale `?tab=` cannot leak forward.
+To send a query deliberately, put it on the argument — `navigate("+/edit?mode=raw")`.
+
+Pass `replace = true` as the second argument to use `history.replaceState` instead of
+pushing a new entry.
 
 ## Testing
 
