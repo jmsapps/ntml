@@ -33,6 +33,13 @@
 
 - Define proper type mappings for all HTML elements.
 
+### ✅ Compile-Time Attribute Typing
+
+- Validate attribute names and element/attribute combinations when the markup compiles.
+- Reject incompatible value types, with diagnostics pointing at the caller's line and column.
+- Accept camelCase spellings so `ariaLabel`, `dataRevealDelay` and `htmlFor` need no backticks.
+- Forward deliberate nonstandard attributes through `customAttrs`.
+
 ### ✅ Styled Components
 
 - Add styling support for HTML elements and user-defined components.
@@ -67,9 +74,17 @@
 - Expose type-safe components matching HTML semantics.
 - Ensure consistent attribute typing and auto-completion.
 
+### ⬜️ Dev Server
+
+- Serve the app and rebuild on save, with a full page reload.
+- Ship outside the core package so `src/` stays dependency-free and server-free.
+- Prerequisite for hot reloading; useful on its own without it.
+
 ### ⬜️ Hot Reloading
 
 - Hot reload project on save
+- Builds on the dev server: push updates over a live connection and preserve signal
+  state instead of reloading the page.
 
 ---
 
