@@ -60,11 +60,6 @@
 - Guard code with `when defined(js)`.
 - Define minimal fallback or debug behavior.
 
-### ⬜️ Project Examples
-
-- Different example files showcasing project features
-- Miniature app project with routing and CRUD.
-
 ### ⬜️ Add Typed HTML Components
 
 - Generate typed component wrappers (e.g. `Div`, `H1`, etc.).
@@ -119,6 +114,11 @@
 ---
 
 ## Version 0.9.0 — Performance enhancements
+
+### ⬜️ Full interactive Demo / Documentation
+
+- Miniature app interactive tutorial, runnable, project that serves as a guide, a teacher, and is genuinely fun to go through.
+- Visual examples, sandboxed tasks, puzzles, lessons and tests.
 
 ### ⬜️ Full Keyed Patch Helpers
 
